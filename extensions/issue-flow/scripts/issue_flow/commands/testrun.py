@@ -1,11 +1,22 @@
 """run-tests, reset-rounds."""
 from __future__ import annotations
 
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 from issue_flow import cli
 from issue_flow.state import StateDir
 from issue_flow.testrun import render_report, run_suite
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _head(root: Path) -> str:
+    r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
 
 
 def _sname(story: int) -> str:
@@ -26,7 +37,10 @@ def run_tests(args, ctx) -> dict:
     path = ctx.root / rel
     state.ensure()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_report(args.story, rnd, tests.max_fix_rounds, results))
+    # The commit and run time make every report unique, so a new run is always a new
+    # QA request (never a reuse of an approval given for an earlier run).
+    path.write_text(render_report(args.story, rnd, tests.max_fix_rounds, results,
+                                  head=_head(ctx.root), run_at=now()))
     result = {"passed": passed, "round": rnd, "max_rounds": tests.max_fix_rounds,
               "exhausted": (not passed) and rnd >= tests.max_fix_rounds,
               "failed": failed, "report": rel.as_posix()}

@@ -42,6 +42,13 @@ class Context:
     def gh(self, value):
         self._gh = value
 
+    def require_trigger_label(self, epic: int) -> None:
+        """Refuse unless the Epic issue still carries the trigger label (removing the label
+        stops the flow)."""
+        label = self.config.trigger_label
+        if label not in self.gh.issue(epic)["labels"]:
+            raise Refusal(f"issue #{epic} no longer has the '{label}' label; flow stopped")
+
     @property
     def config(self):
         if self._config is None:
@@ -101,10 +108,17 @@ def main(argv: list[str] | None = None) -> int:
         # Sticky per epic: a run started dry (pull-issue writes dry-run.json, a CLI-only file)
         # stays dry for every later command, including those run by agent steps that do not
         # inherit the workflow's env.
+        # The opposite also holds: a dry run on a real-run state dir is refused, because
+        # agent steps (which do not get the env) would then make real GitHub writes.
         epic = getattr(args, "epic", None)
-        if epic is not None and not ctx.dry_run:
+        if epic is not None:
             from issue_flow.state import StateDir
-            ctx.dry_run = bool(StateDir(ctx.root, epic).read(DRY_RUN_FILE).get("dry_run"))
+            mode = StateDir(ctx.root, epic).read(DRY_RUN_FILE)
+            if ctx.dry_run and "dry_run" in mode and not mode["dry_run"]:
+                raise Refusal(f"epic #{epic} state is from a real run; remove "
+                              f".specify/issue-flow/{epic}/ to start a dry run")
+            if not ctx.dry_run:
+                ctx.dry_run = bool(mode.get("dry_run"))
         func = _REGISTRY[args.command][0]
         _emit(func(args, ctx))
         return 0

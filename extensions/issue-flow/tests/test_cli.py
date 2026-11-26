@@ -96,8 +96,13 @@ def test_ctx_gh_injectable(tmp_path):
 def _no_gh(monkeypatch):
     from issue_flow import gh as gh_mod
 
-    def boom(*a, **k):
-        raise AssertionError("gh must not be called in dry-run")
+    def boom(args, input=None):
+        # reads (the Epic label check, comments) still happen in a dry run; writes must not
+        if args[:1] == ["api"] and "-X" not in args:
+            if args[-1].endswith("/comments"):
+                return "[]"
+            return json.dumps({"number": 7, "title": "t", "labels": [{"name": "coding-agent"}]})
+        raise AssertionError("gh writes must not be called in dry-run")
     monkeypatch.setattr(gh_mod, "run_gh", boom)
     monkeypatch.setattr(gh_mod.GitHub.__init__, "__defaults__", (boom, False))
 

@@ -1,16 +1,18 @@
 """pull-issue, request, check-approval, record-feature."""
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 from issue_flow import cli
-from issue_flow.approvals import content_hash, evaluate, next_request_id
+from issue_flow.approvals import content_hash, evaluate, next_request_id, parse_command
 from issue_flow.state import StateDir
 
 MAX_BODY = 60000
 STAGES = ["spec", "plan", "tasks", "qa", "pr"]
+REVIEW_HEADING = "### Review requested"
 
 
 def now() -> str:
@@ -22,6 +24,47 @@ def _git_branch(root: Path) -> str:
                           capture_output=True, text=True, check=True).stdout.strip()
 
 
+def _is_flow_comment(body: str) -> bool:
+    """Review requests posted by the flow and /approve|/reject commands: not issue content."""
+    text = (body or "").strip()
+    if not text:
+        return False
+    first = text.splitlines()[0].strip()
+    return first.startswith(REVIEW_HEADING) or parse_command(first) is not None
+
+
+def _head(root: Path) -> str:
+    try:
+        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
+                              text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise cli.Refusal("cannot read the current commit (git rev-parse HEAD failed)") from e
+
+
+def _digest(ctx, stage: str, paths: list[Path]) -> str:
+    """Content hash of the artifacts; for qa also of the commit under test, so a QA approval
+    never survives a code change."""
+    h = content_hash(paths, base=ctx.root)
+    if stage == "qa":
+        h = hashlib.sha256(f"{h}\0head={_head(ctx.root)}".encode()).hexdigest()
+    return h
+
+
+def _artifact_paths(ctx, artifacts: list[str]) -> list[Path]:
+    root = ctx.root.resolve()
+    paths = []
+    for a in artifacts:
+        if Path(a).is_absolute():
+            raise cli.Refusal(f"artifact must be a path relative to the project: {a}")
+        p = (ctx.root / a).resolve()
+        if not p.is_relative_to(root):
+            raise cli.Refusal(f"artifact is outside the project: {a}")
+        if not p.is_file():
+            raise cli.Refusal(f"artifact not found: {a}")
+        paths.append(ctx.root / a)
+    return paths
+
+
 # -- pull-issue
 def pull_issue(args, ctx) -> dict:
     state = StateDir(ctx.root, args.epic)
@@ -29,12 +72,17 @@ def pull_issue(args, ctx) -> dict:
     if mode.get("dry_run") and not ctx.env_dry_run:
         raise cli.Refusal(f"epic #{args.epic} state is from a dry run; remove "
                           f".specify/issue-flow/{args.epic}/ to start a real run")
+    if "dry_run" in mode and not mode["dry_run"] and ctx.env_dry_run:
+        raise cli.Refusal(f"epic #{args.epic} state is from a real run; remove "
+                          f".specify/issue-flow/{args.epic}/ to start a dry run")
     issue = ctx.gh.issue(args.epic)
     label = ctx.config.trigger_label
     if label not in issue["labels"]:
         raise cli.Refusal(f"issue #{args.epic} does not have the '{label}' label")
     lines = [f"# {issue['title']}", "", f"Source: {issue['url']}", "", issue["body"], "", "## Comments", ""]
     for c in ctx.gh.comments(args.epic):
+        if _is_flow_comment(c["body"]):
+            continue
         lines += [f"**@{c['author']}** ({c['createdAt']}):", c["body"], ""]
     rel = Path(".specify/issue-flow") / str(args.epic) / "issue.md"
     path = ctx.root / rel
@@ -62,7 +110,7 @@ def _logins(ctx, stage: str) -> list[str]:
 
 
 def _body(ctx, stage, rid, summary, page_url, artifacts) -> str:
-    head = [f"### Review requested: {stage} — {rid}", ""]
+    head = [f"{REVIEW_HEADING}: {stage} — {rid}", ""]
     if summary:
         head += [summary, ""]
     tail = []
@@ -97,13 +145,9 @@ def request(args, ctx) -> dict:
     stage = args.stage
     if stage not in ctx.config.stages:
         raise cli.Refusal(f"unknown stage '{stage}'")
-    paths = []
-    for a in args.artifact:
-        p = (ctx.root / a)
-        if not p.is_file():
-            raise cli.Refusal(f"artifact not found: {a}")
-        paths.append(p)
-    digest = content_hash(paths, base=ctx.root)
+    paths = _artifact_paths(ctx, args.artifact)
+    ctx.require_trigger_label(args.epic)
+    digest = _digest(ctx, stage, paths)
     state = StateDir(ctx.root, args.epic)
     reqs = state.read("requests")
     history = reqs.get(stage, [])
@@ -135,6 +179,9 @@ def check_approval(args, ctx) -> dict:
     stage = args.stage
     if stage not in ctx.config.stages:
         raise cli.Refusal(f"unknown stage '{stage}'")
+    if ctx.config.stages[stage].via == "github_review":
+        raise cli.Refusal(f"stage '{stage}' is approved via github_review, not comments; "
+                          "use pr-status")
     state = StateDir(ctx.root, args.epic)
     history = state.read("requests").get(stage, [])
     if not history:
@@ -153,7 +200,7 @@ def check_approval(args, ctx) -> dict:
         return result
     paths = [ctx.root / a for a in req["artifacts"]]
     missing = [a for a, p in zip(req["artifacts"], paths) if not p.is_file()]
-    current = "missing:" + ",".join(missing) if missing else content_hash(paths, base=ctx.root)
+    current = "missing:" + ",".join(missing) if missing else _digest(ctx, stage, paths)
     result = evaluate(req, ctx.gh.comments(req["target"]), ctx.config.stages[stage],
                       ctx.config.approvers, current)
     state.write(stage, result)
@@ -165,6 +212,39 @@ def check_approval(args, ctx) -> dict:
         raise cli.Waiting(result, f"waiting for {', '.join(roles)} ({', '.join(logins)}) "
                                   f"on #{req['target']} — comment /approve {req['id']}")
     return result
+
+
+# -- assert-published
+def assert_published(args, ctx) -> dict:
+    """Exit 2 unless the latest request for the stage is for `target`, matches the current
+    artifacts and is not rejected (run after an agent publish so a failed publish stops)."""
+    stage = args.stage
+    if stage not in ctx.config.stages:
+        raise cli.Refusal(f"unknown stage '{stage}'")
+    history = StateDir(ctx.root, args.epic).read("requests").get(stage, [])
+    if not history:
+        raise cli.Refusal(f"not published: no {stage} request recorded")
+    req = history[-1]
+    if req["target"] != args.target:
+        raise cli.Refusal(f"not published: latest {stage} request {req['id']} is for "
+                          f"#{req['target']}, not #{args.target}")
+    if not ctx.dry_run and not req.get("comment_id"):
+        raise cli.Refusal(f"not published: {req['id']} was recorded by a dry run and never posted")
+    try:
+        paths = _artifact_paths(ctx, req["artifacts"])
+    except cli.Refusal as e:
+        raise cli.Refusal(f"not published: {e}") from e
+    current = _digest(ctx, stage, paths)
+    if current != req["hash"]:
+        raise cli.Refusal(f"not published: the {stage} artifact changed after {req['id']} "
+                          "was requested; publish again")
+    status = evaluate(req, ctx.gh.comments(req["target"]), ctx.config.stages[stage],
+                      ctx.config.approvers, current)["status"]
+    if status == "rejected":
+        raise cli.Refusal(f"not published: {req['id']} is rejected and was not superseded; "
+                          "revise the artifact and publish again")
+    return {"published": True, "stage": stage, "request_id": req["id"], "target": req["target"],
+            "status": status}
 
 
 # -- record-feature
@@ -193,6 +273,12 @@ def _setup_request(sp):
     sp.add_argument("--summary", default=None)
 
 
+def _setup_assert(sp):
+    _epic(sp)
+    sp.add_argument("--stage", required=True, choices=STAGES)
+    sp.add_argument("--target", type=int, required=True)
+
+
 def _setup_check(sp):
     _epic(sp)
     sp.add_argument("--stage", required=True, choices=STAGES)
@@ -205,3 +291,4 @@ cli.register("pull-issue", pull_issue, _epic)
 cli.register("request", request, _setup_request)
 cli.register("check-approval", check_approval, _setup_check)
 cli.register("record-feature", record_feature, _epic)
+cli.register("assert-published", assert_published, _setup_assert)

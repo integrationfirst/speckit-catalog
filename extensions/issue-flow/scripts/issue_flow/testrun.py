@@ -50,8 +50,10 @@ def _fence(text: str) -> str:
     return "`" * n
 
 
-def render_report(story: int, rnd: int, max_rounds: int, results: list[SuiteResult]) -> str:
+def render_report(story: int, rnd: int, max_rounds: int, results: list[SuiteResult],
+                  head: str = "", run_at: str = "") -> str:
     lines = [f"# Test report — story #{story} — round {rnd}/{max_rounds}", "",
+             f"Commit: `{head or 'unknown'}`  ", f"Run at: {run_at or 'unknown'}", "",
              "| Suite | Type | Required | Result | Duration |",
              "|---|---|---|---|---|"]
     for r in results:

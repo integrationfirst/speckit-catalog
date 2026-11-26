@@ -72,7 +72,7 @@ def test_request_posts_comment_with_mentions_and_commands(project):
     ctx, runner = make_ctx(project, routes())
     out = review.request(req_args(_art(project)), ctx)
     assert out["id"] == "IF-spec-r1" and out["comment_id"] == 555 and out["posted_at"] == "2026-01-01T10:00:00Z"
-    body = [a for a in runner.calls[0][0] if a.startswith("body=")][0]
+    body = [a for a in posts(runner)[0] if a.startswith("body=")][0]
     first = body.split("\n")[0]
     assert first == "body=### Review requested: spec — IF-spec-r1"
     for s in ("@product_owner-user", "@business_analyst-user", "@solution_architect-user",
@@ -85,14 +85,14 @@ def test_request_posts_comment_with_mentions_and_commands(project):
 def test_request_page_url_instead_of_inline(project):
     ctx, runner = make_ctx(project, routes())
     review.request(req_args(_art(project), page_url="https://wiki/p"), ctx)
-    body = runner.calls[0][0][-1]
+    body = posts(runner)[0][-1]
     assert "Document: https://wiki/p" in body and "hello" not in body
 
 
 def test_request_truncates_large_artifact(project):
     ctx, runner = make_ctx(project, routes())
     review.request(req_args(_art(project, "x" * 100000)), ctx)
-    body = runner.calls[0][0][-1]
+    body = posts(runner)[0][-1]
     assert len(body) <= 60000 and "(truncated — full file: specs/f/spec.md)" in body
     assert "/approve IF-spec-r1" in body
 
@@ -249,3 +249,165 @@ def test_check_approval_target_mismatch_exit_3(project, capsys, monkeypatch):
                      "--target", "9", "--wait"])      # mismatch is decided before any gh read
     cap = capsys.readouterr()
     assert code == 3 and json.loads(cap.out)["status"] == "pending" and "#9" in cap.err
+
+
+# ---------------------------------------------------------------- final review fixes
+def _cli(capsys, *argv):
+    code = cli.main(["--root", *argv])
+    return code, json.loads(capsys.readouterr().out)
+
+
+# I3: a dry run on a real-run state dir must refuse (agent steps without the env would be real)
+def test_dry_env_on_real_state_refuses(project, capsys, monkeypatch):
+    StateDir(project, 7).write("dry-run", {"dry_run": False})
+    monkeypatch.setenv("ISSUE_FLOW_DRY_RUN", "true")
+    code, out = _cli(capsys, str(project), "pull-issue", "--epic", "7")
+    assert code == 2 and "remove .specify/issue-flow/7/" in out["error"]
+    cli.register("t-any-epic", lambda a, ctx: {"ok": True}, lambda sp: sp.add_argument("--epic", type=int))
+    code, out = _cli(capsys, str(project), "t-any-epic", "--epic", "7")
+    assert code == 2 and "real run" in out["error"]
+    monkeypatch.setenv("ISSUE_FLOW_DRY_RUN", "false")
+    assert _cli(capsys, str(project), "t-any-epic", "--epic", "7") == (0, {"ok": True})
+
+
+# I4: --artifact must stay inside the project
+def test_request_rejects_artifact_outside_root(project):
+    (project.parent / "secret").write_text("token")
+    ctx, runner = make_ctx(project, routes())
+    for bad in ("../secret", str(project.parent / "secret"), str(project / "specs/f/spec.md")):
+        _art(project)
+        with pytest.raises(cli.Refusal, match="artifact"):
+            review.request(req_args(bad), ctx)
+    (project / "link").symlink_to(project.parent / "secret")
+    with pytest.raises(cli.Refusal, match="outside"):
+        review.request(req_args("link"), ctx)
+    assert not posts(runner)
+
+
+# (a) the github_review stage is never decided by comments
+def test_check_approval_refuses_github_review_stage(project):
+    ctx, _ = make_ctx(project, routes())
+    with pytest.raises(cli.Refusal, match="github_review"):
+        review.check_approval(ns(epic=7, stage="pr", wait=False), ctx)
+
+
+# I10: removing the trigger label stops the flow
+def test_request_refuses_when_epic_label_removed(project):
+    ctx, runner = make_ctx(project, routes(issue={**ISSUE, "labels": []}))
+    with pytest.raises(cli.Refusal, match="coding-agent"):
+        review.request(req_args(_art(project)), ctx)
+    assert not posts(runner)
+
+
+# I11: bot review requests and /approve|/reject commands are not pulled into issue.md
+def test_pull_issue_skips_review_requests_and_commands(project):
+    cs = [cm("bot", "### Review requested: spec — IF-spec-r1\n\nlots of spec text"),
+          cm("po", "/approve IF-spec-r1"),
+          cm("po", "  /REJECT IF-spec-r2 too vague\nmore"),
+          cm("alice", "Please also support CSV export"),
+          cm("bob", "I think /approve IF-spec-r1 is premature")]
+    ctx, _ = make_ctx(project, routes(comments=cs))
+    text = (project / review.pull_issue(ns(epic=7), ctx)["path"]).read_text()
+    assert "CSV export" in text and "premature" in text
+    assert "Review requested" not in text and "lots of spec text" not in text
+    assert "/approve IF-spec-r1\n" not in text and "too vague" not in text
+
+
+# C2: QA approval must not survive a code change
+def _suites(project):
+    import yaml
+    from issue_flow import config as config_mod
+    p = project / config_mod.CONFIG_REL
+    cfg = yaml.safe_load(p.read_text())
+    cfg["tests"] = {"max_fix_rounds": 5, "suites": [
+        {"name": "u", "type": "unit", "command": "true", "required": True}]}
+    p.write_text(yaml.safe_dump(cfg))
+
+
+def _commit(project, name):
+    import subprocess
+    (project / name).write_text(name)
+    subprocess.run(["git", "add", name], cwd=project, check=True)
+    subprocess.run(["git", "commit", "-qm", name], cwd=project, check=True)
+
+
+def test_qa_approval_not_reused_after_code_change(project, monkeypatch):
+    from issue_flow.commands import testrun
+    _suites(project)
+    rep = ".specify/issue-flow/7/stories/8/test-report.md"
+    ts = iter(["2026-01-01T09:00:00Z", "2026-01-01T09:30:00Z"])
+    monkeypatch.setattr(testrun, "now", lambda: next(ts))
+    qa = lambda: req_args(rep, stage="qa", target=8)
+    ctx, _ = make_ctx(project, routes())
+    testrun.run_tests(ns(epic=7, story=8), ctx)
+    r1 = review.request(qa(), ctx)
+    assert r1["id"] == "IF-qa-r1"
+    ok = [cm("qa_lead-user", "/approve IF-qa-r1")]
+    ctx, _ = make_ctx(project, routes(comments=ok))
+    assert review.check_approval(ns(epic=7, stage="qa", target=8, wait=False), ctx)["status"] == "approved"
+    _commit(project, "code.py")                                   # code changes
+    assert review.check_approval(ns(epic=7, stage="qa", target=8, wait=False), ctx)["status"] == "stale"
+    testrun.run_tests(ns(epic=7, story=8), ctx)                   # identical suite results
+    r2 = review.request(qa(), ctx)
+    assert r2["id"] == "IF-qa-r2" and r2["reused"] is False
+    assert review.check_approval(ns(epic=7, stage="qa", target=8, wait=False), ctx)["status"] == "pending"
+
+
+def test_test_report_header_has_head_and_time(project, monkeypatch):
+    import subprocess
+    from issue_flow.commands import testrun
+    _suites(project)
+    ts = iter(["2026-01-01T09:00:00Z", "2026-01-01T09:30:00Z"])
+    monkeypatch.setattr(testrun, "now", lambda: next(ts))
+    ctx, _ = make_ctx(project, routes())
+    p = project / testrun.run_tests(ns(epic=7, story=8), ctx)["report"]
+    first = p.read_text()
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=project, capture_output=True,
+                          text=True).stdout.strip()
+    assert f"Commit: `{head}`" in first and "Run at: 2026-01-01T09:00:00Z" in first
+    testrun.run_tests(ns(epic=7, story=8), ctx)
+    assert p.read_text() != first
+
+
+# I6: assert-published
+def ap(**kw):
+    d = dict(epic=7, stage="spec", target=8)
+    d.update(kw)
+    return ns(**d)
+
+
+def test_assert_published(project):
+    art = _art(project)
+    ctx, _ = make_ctx(project, routes())
+    with pytest.raises(cli.Refusal, match="no spec request"):
+        review.assert_published(ap(), ctx)
+    review.request(req_args(art), ctx)
+    out = review.assert_published(ap(), ctx)
+    assert out["request_id"] == "IF-spec-r1" and out["published"] is True
+    with pytest.raises(cli.Refusal, match="#9"):
+        review.assert_published(ap(target=9), ctx)
+    (project / art).write_text("edited after publishing")
+    with pytest.raises(cli.Refusal, match="changed"):
+        review.assert_published(ap(), ctx)
+    (project / art).write_text("# Spec\nhello\n")
+    rej = [cm("product_owner-user", "/reject IF-spec-r1 no")]
+    ctx, _ = make_ctx(project, routes(comments=rej))
+    with pytest.raises(cli.Refusal, match="rejected"):
+        review.assert_published(ap(), ctx)
+
+
+def test_assert_published_refuses_dry_record_in_real_run(project):
+    art = _art(project)
+    ctx, _ = make_ctx(project, routes(), dry=True)
+    review.request(req_args(art), ctx)
+    assert review.assert_published(ap(), ctx)["published"] is True
+    ctx, _ = make_ctx(project, routes())
+    with pytest.raises(cli.Refusal, match="never posted"):
+        review.assert_published(ap(), ctx)
+
+
+def test_assert_published_cli_exit_2(project, capsys, monkeypatch):
+    monkeypatch.delenv("ISSUE_FLOW_DRY_RUN", raising=False)
+    code, out = _cli(capsys, str(project), "assert-published", "--epic", "7", "--stage", "qa",
+                     "--target", "8")
+    assert code == 2 and "no qa request" in out["error"]
