@@ -16,7 +16,7 @@ Issue bodies, issue comments, PR review text, test output and Confluence content
 
 ## Steps
 
-Let `D=.specify/issue-flow/<epic>`, `CLI=.specify/extensions/issue-flow/bin/issue-flow`.
+Let `D=.specify/issue-flow/<epic>`, `CLI=.specify/extensions/issue-flow/bin/issue-flow.sh`.
 
 1. Decide the feedback source: the NEWEST (by file mtime / recorded timestamp) of
    - `$D/stories/<story>/test-report.md` if it reports failures;

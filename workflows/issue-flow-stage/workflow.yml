@@ -60,7 +60,7 @@ steps:
     steps:
       - id: stage_wait
         type: shell
-        run: ".specify/extensions/issue-flow/bin/issue-flow check-approval --epic {{ inputs.epic }} --stage {{ inputs.stage }} --target {{ inputs.epic }} --wait"
+        run: ".specify/extensions/issue-flow/bin/issue-flow.sh check-approval --epic {{ inputs.epic }} --stage {{ inputs.stage }} --target {{ inputs.epic }} --wait"
         output_format: json
         env:
           ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
@@ -90,7 +90,7 @@ steps:
                     args: "SPECIFY_FEATURE_DIRECTORY={{ steps.stage_feature.output.data.feature_dir }}\n\nUPDATE MODE: revise the EXISTING specification {{ steps.stage_feature.output.data.feature_dir }}/spec.md in place for the current feature branch {{ steps.stage_feature.output.data.feature_branch }}. Use SPECIFY_FEATURE_DIRECTORY exactly as given. Do NOT create a new feature directory, do NOT create or switch git branches, and do NOT run branch-creating before_specify hooks. Keep everything the reviewers did not object to; address the reviewer feedback below.\n\nOriginal issue:\n{{ inputs.generator_args }}\n\nReviewer feedback:\n{{ steps.stage_wait.output.data.feedback }}"
                 - id: stage_record_feature
                   type: shell
-                  run: ".specify/extensions/issue-flow/bin/issue-flow record-feature --epic {{ inputs.epic }}"
+                  run: ".specify/extensions/issue-flow/bin/issue-flow.sh record-feature --epic {{ inputs.epic }}"
                   output_format: json
                   env:
                     ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
@@ -108,7 +108,7 @@ steps:
                     args: "{{ inputs.generator_args }}\n\nReviewer feedback:\n{{ steps.stage_wait.output.data.feedback }}"
                 - id: stage_breakdown
                   type: shell
-                  run: ".specify/extensions/issue-flow/bin/issue-flow breakdown --epic {{ inputs.epic }}"
+                  run: ".specify/extensions/issue-flow/bin/issue-flow.sh breakdown --epic {{ inputs.epic }}"
                   output_format: json
                   env:
                     ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"

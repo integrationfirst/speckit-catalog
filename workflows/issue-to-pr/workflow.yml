@@ -49,7 +49,7 @@ steps:
   # ── Epic: issue → spec ─────────────────────────────────────────────────────
   - id: pull_issue
     type: shell
-    run: ".specify/extensions/issue-flow/bin/issue-flow pull-issue --epic {{ inputs.epic }}"
+    run: ".specify/extensions/issue-flow/bin/issue-flow.sh pull-issue --epic {{ inputs.epic }}"
     output_format: json
     env: &cli_env
       ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
@@ -66,7 +66,7 @@ steps:
 
   - id: record_feature
     type: shell
-    run: ".specify/extensions/issue-flow/bin/issue-flow record-feature --epic {{ inputs.epic }}"
+    run: ".specify/extensions/issue-flow/bin/issue-flow.sh record-feature --epic {{ inputs.epic }}"
     output_format: json
     env: *cli_env
 
@@ -106,7 +106,7 @@ steps:
 
   - id: breakdown
     type: shell
-    run: ".specify/extensions/issue-flow/bin/issue-flow breakdown --epic {{ inputs.epic }}"
+    run: ".specify/extensions/issue-flow/bin/issue-flow.sh breakdown --epic {{ inputs.epic }}"
     output_format: json
     env: *cli_env
 
@@ -122,7 +122,7 @@ steps:
 
   - id: create_stories
     type: shell
-    run: ".specify/extensions/issue-flow/bin/issue-flow create-stories --epic {{ inputs.epic }}"
+    run: ".specify/extensions/issue-flow/bin/issue-flow.sh create-stories --epic {{ inputs.epic }}"
     output_format: json
     env: *cli_env
 
@@ -134,7 +134,7 @@ steps:
     steps:
       - id: next_story
         type: shell
-        run: ".specify/extensions/issue-flow/bin/issue-flow next-story --epic {{ inputs.epic }}"
+        run: ".specify/extensions/issue-flow/bin/issue-flow.sh next-story --epic {{ inputs.epic }}"
         output_format: json
         env: *cli_env
 
@@ -144,7 +144,7 @@ steps:
         then:
           - id: start_story
             type: shell
-            run: ".specify/extensions/issue-flow/bin/issue-flow start-story --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }}"
+            run: ".specify/extensions/issue-flow/bin/issue-flow.sh start-story --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }}"
             output_format: json
             env: *cli_env
 
@@ -174,7 +174,7 @@ steps:
                     steps:
                       - id: run_tests
                         type: shell
-                        run: ".specify/extensions/issue-flow/bin/issue-flow run-tests --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }}"
+                        run: ".specify/extensions/issue-flow/bin/issue-flow.sh run-tests --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }}"
                         output_format: json
                         timeout: 7200
                         env: *cli_env
@@ -189,7 +189,7 @@ steps:
                             on_reject: abort
                           - id: rounds_reset_exhausted
                             type: shell
-                            run: ".specify/extensions/issue-flow/bin/issue-flow reset-rounds --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }}"
+                            run: ".specify/extensions/issue-flow/bin/issue-flow.sh reset-rounds --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }}"
                             output_format: json
                             env: *cli_env
                         else:
@@ -218,7 +218,7 @@ steps:
 
                   - id: qa_wait
                     type: shell
-                    run: ".specify/extensions/issue-flow/bin/issue-flow check-approval --epic {{ inputs.epic }} --stage qa --target {{ steps.next_story.output.data.story }} --wait"
+                    run: ".specify/extensions/issue-flow/bin/issue-flow.sh check-approval --epic {{ inputs.epic }} --stage qa --target {{ steps.next_story.output.data.story }} --wait"
                     output_format: json
                     env: *cli_env
 
@@ -229,7 +229,7 @@ steps:
                     then:
                       - id: rounds_reset_qa
                         type: shell
-                        run: ".specify/extensions/issue-flow/bin/issue-flow reset-rounds --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }}"
+                        run: ".specify/extensions/issue-flow/bin/issue-flow.sh reset-rounds --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }}"
                         output_format: json
                         env: *cli_env
                       - id: fix_qa
@@ -247,13 +247,13 @@ steps:
 
               - id: open_pr
                 type: shell
-                run: ".specify/extensions/issue-flow/bin/issue-flow open-pr --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }}"
+                run: ".specify/extensions/issue-flow/bin/issue-flow.sh open-pr --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }}"
                 output_format: json
                 env: *cli_env
 
               - id: pr_wait
                 type: shell
-                run: ".specify/extensions/issue-flow/bin/issue-flow pr-status --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }} --wait"
+                run: ".specify/extensions/issue-flow/bin/issue-flow.sh pr-status --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }} --wait"
                 output_format: json
                 env: *cli_env
 
@@ -264,7 +264,7 @@ steps:
                 then:
                   - id: rounds_reset_pr
                     type: shell
-                    run: ".specify/extensions/issue-flow/bin/issue-flow reset-rounds --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }}"
+                    run: ".specify/extensions/issue-flow/bin/issue-flow.sh reset-rounds --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }}"
                     output_format: json
                     env: *cli_env
                   - id: fix_pr
@@ -282,6 +282,6 @@ steps:
 
           - id: story_done
             type: shell
-            run: ".specify/extensions/issue-flow/bin/issue-flow set-story-status --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }} --status done"
+            run: ".specify/extensions/issue-flow/bin/issue-flow.sh set-story-status --epic {{ inputs.epic }} --story {{ steps.next_story.output.data.story }} --status done"
             output_format: json
             env: *cli_env

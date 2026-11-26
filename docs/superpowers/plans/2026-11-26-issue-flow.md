@@ -21,7 +21,7 @@
 - Branch name `<story#>-<slug>`; slug = lowercase title, non-alphanumerics → `-`, max 40 chars.
 - State dir: `.specify/issue-flow/<epic#>/` (`state.json`, `requests.json`, `issue.md`, `breakdown.md`, `issue-mapping.json`, `stories/<story#>/test-report.md`). *Deviation from spec paths (`specs/<feature>/…`): state must exist before `speckit.specify` creates the feature dir; `state.json` records `feature_dir`.*
 - Config file: `.specify/extensions/issue-flow/issue-flow-config.yml` (schema = spec §6.6).
-- CLI entry: `.specify/extensions/issue-flow/bin/issue-flow <subcommand> …` → `uv run --no-project --quiet --with pyyaml python3 <ext>/scripts/issue_flow/cli.py "$@"`. Every subcommand prints exactly one JSON object on stdout; diagnostics go to stderr; exit 0 success, 2 refusal/validation, 1 unexpected error.
+- CLI entry: `.specify/extensions/issue-flow/bin/issue-flow.sh <subcommand> …` → `uv run --no-project --quiet --with pyyaml python3 <ext>/scripts/issue_flow/cli.py "$@"`. Every subcommand prints exactly one JSON object on stdout; diagnostics go to stderr; exit 0 success, 2 refusal/validation, 1 unexpected error.
 - `ISSUE_FLOW_DRY_RUN=1` (and workflow input `dry_run: true`) → every GitHub write is logged to stderr as `DRY-RUN gh …` and returns a fake id; reads still happen.
 - No secrets in any file. GitHub via the developer's `gh` login; Confluence via the Atlassian MCP.
 - Only test-suite commands from the committed config run with `shell=True`. Nothing taken from issue/comment/review text is ever interpolated into a shell command or `gh` argument list as anything but a single argv element (or stdin/`--body-file`).
@@ -65,7 +65,7 @@ git commit -m "docs: workflow engine spike notes for issue-flow"
 ### Task 2: Extension skeleton, config loader, CLI dispatcher
 
 **Files:**
-- Create: `extensions/issue-flow/extension.yml`, `extensions/issue-flow/issue-flow-config.template.yml`, `extensions/issue-flow/bin/issue-flow`, `extensions/issue-flow/scripts/issue_flow/{__init__,cli,config,state}.py`
+- Create: `extensions/issue-flow/extension.yml`, `extensions/issue-flow/issue-flow-config.template.yml`, `extensions/issue-flow/bin/issue-flow.sh`, `extensions/issue-flow/scripts/issue_flow/{__init__,cli,config,state}.py`
 - Test: `extensions/issue-flow/tests/test_config.py`, `tests/test_state.py`, `tests/conftest.py`
 
 **Interfaces:**
@@ -78,7 +78,7 @@ git commit -m "docs: workflow engine spike notes for issue-flow"
 
 - [ ] **Step 1: Write failing tests**: `test_load_valid_config` (template with filled values → `cfg.stages["spec"].roles == ["product_owner","business_analyst","solution_architect"]`, `cfg.tests.max_fix_rounds == 5`); `test_unknown_role_in_stage_raises` (stage refers to `architect` not in approvers → `ConfigError` mentioning `architect`); `test_missing_repo_raises`; `test_state_roundtrip` (`write("state", {...})` then `read` equal; file under `.specify/issue-flow/42/state.json`).
 - [ ] **Step 2: Run** `cd extensions/issue-flow && uv run --no-project --with pytest --with pyyaml pytest -q` → FAIL (modules missing).
-- [ ] **Step 3: Implement** `config.py`, `state.py`, `cli.py` (argparse subparsers; prints `json.dumps(result)`; `ConfigError`/`Refusal` → exit 2 with `{"error": msg}`), `bin/issue-flow` wrapper, template (spec §6.6 values, `confluence.space_key: ""`).
+- [ ] **Step 3: Implement** `config.py`, `state.py`, `cli.py` (argparse subparsers; prints `json.dumps(result)`; `ConfigError`/`Refusal` → exit 2 with `{"error": msg}`), `bin/issue-flow.sh` wrapper, template (spec §6.6 values, `confluence.space_key: ""`).
 - [ ] **Step 4: Run tests** → PASS.
 - [ ] **Step 5: Commit** `feat(issue-flow): extension skeleton, config and state`.
 
@@ -207,13 +207,13 @@ git commit -m "docs: workflow engine spike notes for issue-flow"
 - Create: `extensions/issue-flow/claude-permissions.json` (snippet for `.claude/settings.json`)
 
 **Interfaces:**
-- Consumes: CLI subcommands from Tasks 4–7 (commands call `.specify/extensions/issue-flow/bin/issue-flow …`).
+- Consumes: CLI subcommands from Tasks 4–7 (commands call `.specify/extensions/issue-flow/bin/issue-flow.sh …`).
 - Produces commands:
   - `speckit.issue-flow.setup` — interactive (not used headless): asks repo, approver logins per role (verifies each with `gh api users/<login>`), resolves the user's personal Confluence space via the Atlassian MCP (`getConfluenceSpaces`, type personal) and writes `confluence.space_key`, asks test suites; writes config; creates labels `coding-agent`, `in-progress`, `in-review` if missing; prints the permissions snippet to merge.
   - `speckit.issue-flow.publish <epic> <stage>` — for spec/plan/tasks: creates or updates one Confluence page per artifact titled `#<epic> <issue title> — <Stage>` in `confluence.space_key` (page id stored in `state.json.pages[stage]`), then runs `issue-flow request --stage <stage> --target <epic> --artifact … --page-url <url>`. For `qa`: no Confluence; runs `request --stage qa --target <story> --artifact <test-report>`.
   - `speckit.issue-flow.fix <epic> <story>` — reads the newest of: failing `test-report.md`, rejected `qa.json` feedback, `pr.json` feedback; fixes code test-first; ticks tasks; commits on the story branch with message `fix(#<story>): …`.
   - `speckit.issue-flow.status <epic>` — read-only summary from state files: stage, who it waits for, links.
-- `claude-permissions.json`: `allow` for `Bash(.specify/extensions/issue-flow/bin/issue-flow:*)`, `Bash(gh:*)`, `Bash(git:*)`, the Atlassian MCP Confluence tools `mcp__plugin_atlassian_atlassian__createConfluenceContent`, `…__updateConfluenceContent`, `…__getConfluenceContent`, `…__getAccessibleAtlassianResources`, `…__discover`, `…__executeRead`.
+- `claude-permissions.json`: `allow` for `Bash(.specify/extensions/issue-flow/bin/issue-flow.sh:*)`, `Bash(gh:*)`, `Bash(git:*)`, the Atlassian MCP Confluence tools `mcp__plugin_atlassian_atlassian__createConfluenceContent`, `…__updateConfluenceContent`, `…__getConfluenceContent`, `…__getAccessibleAtlassianResources`, `…__discover`, `…__executeRead`.
 
 - [ ] **Step 1: Write the four command files** (frontmatter `description:`; body = numbered steps naming the exact CLI calls and outputs above; each command ends by printing one line `RESULT: {...json...}`).
 - [ ] **Step 2: Validate** in speckit-sample: `specify extension add --dev ../speckit-catalog/extensions/issue-flow` → lists 4 commands; `.claude/skills/speckit-issue-flow-publish/SKILL.md` exists.
