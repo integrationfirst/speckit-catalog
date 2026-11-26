@@ -21,7 +21,19 @@ requires:
       required: true
 
 provides:
-  commands: []
+  commands:
+    - name: "speckit.issue-flow.setup"
+      file: "commands/setup.md"
+      description: "Interactively configure Issue Flow"
+    - name: "speckit.issue-flow.publish"
+      file: "commands/publish.md"
+      description: "Publish a stage artifact for approval"
+    - name: "speckit.issue-flow.fix"
+      file: "commands/fix.md"
+      description: "Fix a story from the newest feedback"
+    - name: "speckit.issue-flow.status"
+      file: "commands/status.md"
+      description: "Read-only summary of an Issue Flow run"
   config:
     - name: "issue-flow-config.yml"
       template: "issue-flow-config.template.yml"

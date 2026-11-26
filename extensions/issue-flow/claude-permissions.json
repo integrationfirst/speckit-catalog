@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.specify/extensions/issue-flow/bin/issue-flow:*)",
+      "Bash(gh:*)",
+      "Bash(git:*)",
+      "mcp__plugin_atlassian_atlassian__createConfluenceContent",
+      "mcp__plugin_atlassian_atlassian__updateConfluenceContent",
+      "mcp__plugin_atlassian_atlassian__getConfluenceContent",
+      "mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources",
+      "mcp__plugin_atlassian_atlassian__discover",
+      "mcp__plugin_atlassian_atlassian__executeRead",
+      "mcp__plugin_atlassian_atlassian__executeWrite"
+    ]
+  }
+}
