@@ -108,7 +108,7 @@ def test_start_story_refusals(repo):
 
 def test_open_pr_creates_then_comments(repo, monkeypatch):
     pushes = []
-    monkeypatch.setattr(cmd, "git", lambda args, cwd: pushes.append(args) or "")
+    monkeypatch.setattr(cmd, "git", lambda args, cwd: pushes.append(args) or "abc123\n")
     monkeypatch.setattr(cmd, "now", lambda: "2026-01-01T00:00:00Z")
     state = StateDir(repo, EPIC)
     state.write("stories/11/state", {"round": 2, "branch": "11-x", "base": "specfeat"})
@@ -127,6 +127,7 @@ def test_open_pr_creates_then_comments(repo, monkeypatch):
     assert ("add_labels", 11, ["in-review"]) in gh.calls
     st = state.read("stories/11/state")
     assert st["pr"] == 55 and st["last_push_at"] == "2026-01-01T00:00:00Z" and st["round"] == 2
+    assert st["head_sha"] == "abc123"
     assert state.read("stories/11/pr")["pr"] == 55
     assert state.read("issue-mapping")["stories"][0]["status"] == "in_review"
     rep.write_text("REPORT-TWO")
@@ -144,21 +145,24 @@ def test_open_pr_dry_run_skips_push(repo, capfd):
     assert "DRY-RUN git push -u origin 11-x" in capfd.readouterr().err
 
 
+SHA = "sha-new"
+
+
 def pr_ctx(repo, reviews, comments=None, pushed="2026-01-01T00:00:00Z"):
     StateDir(repo, EPIC).write("stories/11/state",
-                               {"branch": "b", "base": "x", "pr": 5, "pr_url": "u://pr",
+                               {"branch": "b", "base": "x", "pr": 5, "pr_url": "u://pr", "head_sha": SHA,
                                 "last_push_at": pushed})
     return mkctx(repo, FakeGh(reviews, comments))
 
 
-def rv(author, state, at="2026-01-02T00:00:00Z", body=""):
-    return {"author": author, "state": state, "body": body, "submittedAt": at}
+def rv(author, state, at="2026-01-02T00:00:00Z", body="", sha=SHA):
+    return {"author": author, "state": state, "body": body, "submittedAt": at, "commit_id": sha}
 
 
 def test_pr_status_ignores_non_team_lead_approval(repo):
     ctx = pr_ctx(repo, [rv("random", "APPROVED")])
     r = cmd.pr_status(ns(11, wait=False), ctx)
-    assert r["status"] == "pending" and r["waiting_for"] == ["team_lead-user"]
+    assert r["status"] == "pending" and r["waiting_for"] == ["team_lead"]
     r = cmd.pr_status(ns(11, wait=False), pr_ctx(repo, [rv("team_lead-user", "APPROVED")]))
     assert r["status"] == "approved"
 
@@ -185,3 +189,75 @@ def test_pr_status_latest_per_login_and_wait(repo):
     with pytest.raises(cli.Waiting) as e:
         cmd.pr_status(ns(11, wait=True), pr_ctx(repo, []))
     assert "waiting for PR review from team_lead-user on u://pr" in str(e.value)
+
+
+def set_pr_stage(project, roles, require):
+    import yaml
+    from issue_flow import config as config_mod
+    p = project / config_mod.CONFIG_REL
+    cfg = yaml.safe_load(p.read_text())
+    cfg["stages"]["pr"]["roles"] = roles
+    cfg["stages"]["pr"]["require"] = require
+    p.write_text(yaml.safe_dump(cfg))
+
+
+def test_stale_approval_after_failed_comment(repo, monkeypatch):
+    monkeypatch.setattr(cmd, "git", lambda args, cwd: "newsha\n")
+    stamps = iter(["2026-01-05T00:00:00Z", "2026-01-05T00:00:01Z"])
+    monkeypatch.setattr(cmd, "now", lambda: next(stamps))
+    StateDir(repo, EPIC).write("stories/11/state", {"branch": "b", "base": "x", "pr": 5,
+        "pr_url": "u://pr", "head_sha": "oldsha", "last_push_at": "2026-01-01T00:00:00Z"})
+
+    class Boom(FakeGh):
+        def pr_comment(self, pr, body):
+            raise RuntimeError("gh down")
+    with pytest.raises(RuntimeError):
+        cmd.open_pr(ns(11), mkctx(repo, Boom()))
+    # approval after old push but before new push, on the old sha
+    ctx = mkctx(repo, FakeGh([rv("team_lead-user", "APPROVED", at="2026-01-03T00:00:00Z", sha="oldsha")]))
+    assert cmd.pr_status(ns(11, wait=False), ctx)["status"] == "pending"
+    st = StateDir(repo, EPIC).read("stories/11/state")
+    assert st["last_push_at"] == "2026-01-05T00:00:01Z" and st["head_sha"] == "newsha"
+    assert StateDir(repo, EPIC).read("stories/11/pr")["head_sha"] == "newsha"
+
+
+def test_push_started_at_fails_closed(repo, monkeypatch):
+    def boom(args, cwd):
+        raise subprocess.CalledProcessError(1, args, stderr="rejected")
+    monkeypatch.setattr(cmd, "git", boom)
+    StateDir(repo, EPIC).write("stories/11/state", {"branch": "b", "base": "x", "pr": 5,
+        "pr_url": "u", "head_sha": SHA, "last_push_at": "2026-01-01T00:00:00Z"})
+    with pytest.raises(cli.Refusal):
+        cmd.open_pr(ns(11), mkctx(repo))
+    st = StateDir(repo, EPIC).read("stories/11/state")
+    assert st["push_started_at"] > st["last_push_at"]
+    ctx = mkctx(repo, FakeGh([rv("team_lead-user", "APPROVED", at="2026-01-01T00:00:01Z")]))
+    assert cmd.pr_status(ns(11, wait=False), ctx)["status"] == "pending"
+
+
+def test_require_all_roles(repo):
+    set_pr_stage(repo, ["team_lead", "qa_lead"], "all")
+    r = cmd.pr_status(ns(11, wait=False), pr_ctx(repo, [rv("team_lead-user", "APPROVED")]))
+    assert r["status"] == "pending" and r["waiting_for"] == ["qa_lead"]
+    r = cmd.pr_status(ns(11, wait=False), pr_ctx(
+        repo, [rv("team_lead-user", "APPROVED"), rv("qa_lead-user", "APPROVED")]))
+    assert r["status"] == "approved"
+    set_pr_stage(repo, ["team_lead", "qa_lead"], "any")
+    assert cmd.pr_status(ns(11, wait=False), pr_ctx(
+        repo, [rv("team_lead-user", "APPROVED")]))["status"] == "approved"
+
+
+def test_login_case_insensitive(repo):
+    r = cmd.pr_status(ns(11, wait=False), pr_ctx(repo, [rv("Team_Lead-User", "APPROVED")]))
+    assert r["status"] == "approved"
+
+
+def test_review_on_old_commit_ignored(repo):
+    r = cmd.pr_status(ns(11, wait=False), pr_ctx(repo, [rv("team_lead-user", "APPROVED", sha="old")]))
+    assert r["status"] == "pending"
+
+
+def test_no_last_push_never_counts_reviews(repo):
+    StateDir(repo, EPIC).write("stories/11/state", {"pr": 5, "pr_url": "u"})
+    ctx = mkctx(repo, FakeGh([rv("team_lead-user", "APPROVED")]))
+    assert cmd.pr_status(ns(11, wait=False), ctx)["status"] == "pending"

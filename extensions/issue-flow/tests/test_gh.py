@@ -41,7 +41,8 @@ def test_reviews_and_review_comments():
         [[{"user": {"login": "r"}, "body": "b", "path": "f.py", "line": 3, "created_at": "t"}]],
     ])
     g = GitHub("a/b", runner=r)
-    assert g.pr_reviews(2) == [{"author": "r", "state": "APPROVED", "body": "", "submittedAt": "t"}]
+    assert g.pr_reviews(2) == [{"author": "r", "state": "APPROVED", "body": "", "submittedAt": "t",
+                                "commit_id": ""}]
     assert g.pr_review_comments(2) == [
         {"author": "r", "body": "b", "path": "f.py", "line": 3, "createdAt": "t"}]
     assert "repos/a/b/pulls/2/reviews" in r.calls[0][0]

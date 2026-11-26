@@ -41,20 +41,26 @@ def render_pr_body(story: dict, epic: int, report: str) -> str:
     return "\n".join(lines)
 
 
-def evaluate_reviews(reviews: list[dict], comments: list[dict], logins: list[str],
-                     since: str) -> dict:
-    """Only reviews by `logins` submitted after `since` count; latest decisive review per login."""
+def evaluate_reviews(reviews: list[dict], comments: list[dict], role_logins: dict[str, list[str]],
+                     require: str, since: str, head_sha: str) -> dict:
+    """Only reviews by role members, on `head_sha`, submitted after `since` count (logins compared
+    case-insensitively); latest decisive review per login. `require` is 'all' or 'any' roles."""
+    allowed = {lg.lower() for lgs in role_logins.values() for lg in lgs}
     latest: dict[str, dict] = {}
-    for r in sorted((r for r in reviews if r["author"] in logins
-                     and r["state"] in DECISIVE and r["submittedAt"] > since),
+    for r in sorted((r for r in reviews if r["author"].lower() in allowed
+                     and r["state"] in DECISIVE and r["submittedAt"] > since
+                     and head_sha and r.get("commit_id", "") == head_sha),
                     key=lambda r: r["submittedAt"]):
-        latest[r["author"]] = r
+        latest[r["author"].lower()] = r
     changes = [r for r in latest.values() if r["state"] == "CHANGES_REQUESTED"]
     if changes:
         fb = [f"@{r['author']}: {r['body']}" for r in changes if r["body"].strip()]
         fb += [f"@{c['author']} {c['path']}:{c['line']}: {c['body']}" for c in comments
-               if c["author"] in logins and c["createdAt"] > since]
+               if c["author"].lower() in allowed and c["createdAt"] > since]
         return {"status": "changes_requested", "feedback": "\n".join(fb)}
-    if any(r["state"] == "APPROVED" for r in latest.values()):
+    approved = {role for role, lgs in role_logins.items()
+                if any(latest.get(lg.lower(), {}).get("state") == "APPROVED" for lg in lgs)}
+    done = bool(approved) if require == "any" else bool(role_logins) and approved == set(role_logins)
+    if done:
         return {"status": "approved"}
-    return {"status": "pending", "waiting_for": list(logins)}
+    return {"status": "pending", "waiting_for": [r for r in role_logins if r not in approved]}

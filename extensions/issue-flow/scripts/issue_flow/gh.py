@@ -91,7 +91,8 @@ class GitHub:
 
     def pr_reviews(self, pr: int) -> list[dict]:
         return [{"author": _login(r.get("user")), "state": r.get("state", ""),
-                 "body": r.get("body") or "", "submittedAt": r.get("submitted_at") or ""}
+                 "body": r.get("body") or "", "submittedAt": r.get("submitted_at") or "",
+                 "commit_id": r.get("commit_id") or ""}
                 for r in self._read_pages(f"repos/{self.repo}/pulls/{pr}/reviews")]
 
     def pr_review_comments(self, pr: int) -> list[dict]:

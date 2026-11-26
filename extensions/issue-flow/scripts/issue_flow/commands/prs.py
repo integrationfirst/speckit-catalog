@@ -72,6 +72,8 @@ def open_pr(args, ctx) -> dict:
         raise cli.Refusal(f"story #{args.story} has no branch; run start-story first")
     rep = ctx.root / ".specify/issue-flow" / str(args.epic) / "stories" / str(args.story) / "test-report.md"
     report = rep.read_text(errors="replace") if rep.is_file() else ""
+    st["push_started_at"] = now()
+    state.write(_sname(args.story), st)
     if ctx.dry_run:
         print(f"DRY-RUN git push -u origin {branch}", file=sys.stderr)
     else:
@@ -79,7 +81,14 @@ def open_pr(args, ctx) -> dict:
             git(["push", "-u", "origin", branch], ctx.root)
         except subprocess.CalledProcessError as e:
             raise cli.Refusal(f"git push failed: {(e.stderr or '').strip()}") from e
+    # Persist push facts before any gh write so a later failure cannot leave stale approvals valid.
     pushed_at = now()
+    head_sha = "" if ctx.dry_run else git(["rev-parse", "HEAD"], ctx.root).strip()
+    st.update(last_push_at=pushed_at, head_sha=head_sha)
+    state.write(_sname(args.story), st)
+    prj = state.read(f"stories/{args.story}/pr")
+    prj.update(branch=branch, base=base, last_push_at=pushed_at, head_sha=head_sha)
+    state.write(f"stories/{args.story}/pr", prj)
     if st.get("pr"):
         pr, url, created = st["pr"], st.get("pr_url", ""), False
         ctx.gh.pr_comment(pr, f"### New push — test report\n\n{report or '_No test report available._'}")
@@ -87,10 +96,10 @@ def open_pr(args, ctx) -> dict:
         res = ctx.gh.pr_create(head=branch, base=base, title=f"{story['title']} (#{args.story})",
                                body=prs.render_pr_body(story, args.epic, report))
         pr, url, created = res["number"], res["url"], True
-    st.update(pr=pr, pr_url=url, last_push_at=pushed_at)
+    st.update(pr=pr, pr_url=url)
     state.write(_sname(args.story), st)
-    state.write(f"stories/{args.story}/pr", {"pr": pr, "url": url, "branch": branch, "base": base,
-                                              "last_push_at": pushed_at})
+    prj.update(pr=pr, url=url)
+    state.write(f"stories/{args.story}/pr", prj)
     labels = ctx.config.progress_labels
     if labels.get("in_progress"):
         try:
@@ -111,11 +120,16 @@ def pr_status(args, ctx) -> dict:
     if not pr:
         raise cli.Refusal(f"story #{args.story} has no pull request; run open-pr first")
     cfg = ctx.config
-    logins: list[str] = []
-    for role in cfg.stages["pr"].roles:
-        logins += [lg for lg in cfg.approvers.get(role, []) if lg not in logins]
-    since = st.get("last_push_at", "")
-    res = prs.evaluate_reviews(ctx.gh.pr_reviews(pr), ctx.gh.pr_review_comments(pr), logins, since)
+    stage = cfg.stages["pr"]
+    role_logins = {r: list(cfg.approvers.get(r, [])) for r in stage.roles}
+    logins = [lg for lgs in role_logins.values() for lg in lgs]
+    since = max(st.get("last_push_at", ""), st.get("push_started_at", ""))
+    head_sha = st.get("head_sha", "")
+    if not st.get("last_push_at") or not head_sha:
+        res = {"status": "pending", "waiting_for": list(role_logins)}  # fail closed
+    else:
+        res = prs.evaluate_reviews(ctx.gh.pr_reviews(pr), ctx.gh.pr_review_comments(pr),
+                                   role_logins, stage.require, since, head_sha)
     res.update(pr=pr, url=st.get("pr_url", ""))
     prj = state.read(f"stories/{args.story}/pr")
     prj.update(res)
