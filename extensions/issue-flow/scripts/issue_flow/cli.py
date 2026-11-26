@@ -43,6 +43,14 @@ class Context:
         return self._config
 
 
+class Waiting(Exception):
+    """Result is valid but the stage is not approved yet: print it, exit 3."""
+
+    def __init__(self, result: dict, message: str):
+        super().__init__(message)
+        self.result = result
+
+
 # name -> (func, setup(parser) | None)
 _REGISTRY: dict[str, tuple[Callable, Callable | None]] = {}
 
@@ -87,6 +95,10 @@ def main(argv: list[str] | None = None) -> int:
         func = _REGISTRY[args.command][0]
         _emit(func(args, ctx))
         return 0
+    except Waiting as e:
+        _emit(e.result)
+        sys.stderr.write(str(e) + "\n")
+        return 3
     except (Refusal, ConfigError) as e:
         _emit({"error": str(e)})
         return 2
