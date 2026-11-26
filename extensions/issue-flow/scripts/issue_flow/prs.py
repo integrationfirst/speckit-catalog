@@ -24,13 +24,17 @@ def git(args: list[str], cwd: Path) -> str:
 
 
 def pick_base(stories: list[dict], index: int, branches: dict[int, str],
-              feature_branch: str, default_branch: str, stacked: bool) -> str | None:
-    """Base branch for story `index`; None when stacked and the previous story has no branch."""
+              feature_branch: str, default_branch: str,
+              stacked: bool) -> tuple[str, str] | None:
+    """(branch point, PR base) for story `index`; None when stacked and the previous story has
+    no branch. Story 1 branches from the (unpushed) feature branch, so it carries the spec
+    documents, but its PR targets the default branch; Story N stacks on Story N-1."""
     if not stacked:
-        return default_branch
+        return default_branch, default_branch
     if index == 0:
-        return feature_branch
-    return branches.get(stories[index - 1]["number"]) or None
+        return feature_branch, default_branch
+    prev = branches.get(stories[index - 1]["number"])
+    return (prev, prev) if prev else None
 
 
 def render_pr_body(story: dict, epic: int, report: str) -> str:

@@ -22,8 +22,12 @@ def git(root, *a):
 
 
 class FakeGh:
-    def __init__(self, reviews=None, comments=None):
+    def __init__(self, reviews=None, comments=None, labels=("coding-agent",)):
         self.calls, self._reviews, self._comments = [], reviews or [], comments or []
+        self.labels = list(labels)
+
+    def issue(self, n):
+        return {"number": n, "labels": self.labels if n == EPIC else []}
 
     def pr_create(self, head, base, title, body):
         self.calls.append(("pr_create", head, base, title, body))
@@ -50,7 +54,7 @@ def repo(project):
     (project / "f.txt").write_text("x")
     git(project, "add", "f.txt")
     git(project, "commit", "-qm", "init")
-    git(project, "branch", "specfeat")
+    git(project, "checkout", "-q", "-b", "specfeat")
     state = StateDir(project, EPIC)
     state.write("state", {"feature_branch": "specfeat", "feature_dir": "specs/specfeat"})
     state.write("issue-mapping", {"epic": EPIC, "stories": [
@@ -75,10 +79,12 @@ def test_slugify():
 def test_first_story_branches_from_feature_branch(repo):
     gh = FakeGh()
     r = cmd.start_story(ns(11), mkctx(repo, gh))
-    assert r == {"branch": "11-login-api-tokens-refresh", "base": "specfeat"}
+    # C1 (R22): Story 1 branches from the feature branch, its PR targets the default branch
+    assert r == {"branch": "11-login-api-tokens-refresh", "base": "main", "branch_point": "specfeat"}
     assert git(repo, "rev-parse", "--abbrev-ref", "HEAD") == "11-login-api-tokens-refresh"
+    assert git(repo, "rev-parse", "HEAD") == git(repo, "rev-parse", "specfeat")
     st = StateDir(repo, EPIC).read("stories/11/state")
-    assert st["branch"] == r["branch"] and st["base"] == "specfeat"
+    assert st["branch"] == r["branch"] and st["base"] == "main" and st["branch_point"] == "specfeat"
     assert ("add_labels", 11, ["in-progress"]) in gh.calls
     m = StateDir(repo, EPIC).read("issue-mapping")
     assert m["stories"][0]["status"] == "in_progress"
@@ -93,7 +99,74 @@ def test_second_story_stacks_on_first(repo):
         cmd.start_story(ns(12), mkctx(repo))
     cmd.start_story(ns(11), mkctx(repo))
     r = cmd.start_story(ns(12), mkctx(repo))
-    assert r == {"branch": "12-profile-page", "base": "11-login-api-tokens-refresh"}
+    assert r == {"branch": "12-profile-page", "base": "11-login-api-tokens-refresh",
+                 "branch_point": "11-login-api-tokens-refresh"}
+
+
+def test_non_stacked_branches_from_and_targets_default(repo):
+    import yaml
+    from issue_flow import config as config_mod
+    p = repo / config_mod.CONFIG_REL
+    cfg = yaml.safe_load(p.read_text())
+    cfg["git"]["stacked"] = False
+    p.write_text(yaml.safe_dump(cfg))
+    r = cmd.start_story(ns(11), mkctx(repo))
+    assert r["base"] == "main" and r["branch_point"] == "main"
+    r = cmd.start_story(ns(12), mkctx(repo))
+    assert r["base"] == "main" and r["branch_point"] == "main"
+
+
+def test_first_story_commits_spec_documents_on_feature_branch(repo):
+    fd = repo / "specs/specfeat"
+    fd.mkdir(parents=True)
+    (fd / "spec.md").write_text("# spec")
+    (fd / "tasks.md").write_text("# tasks")
+    (repo / "unrelated.txt").write_text("not mine")
+    before = git(repo, "rev-parse", "specfeat")
+    cmd.start_story(ns(11), mkctx(repo))
+    assert git(repo, "log", "-1", "--format=%s", "specfeat") == "docs(#7): spec, plan and tasks"
+    assert git(repo, "rev-parse", "specfeat~1") == before
+    files = git(repo, "show", "--name-only", "--format=", "specfeat").split()
+    assert sorted(files) == ["specs/specfeat/spec.md", "specs/specfeat/tasks.md"]
+    assert git(repo, "rev-parse", "HEAD") == git(repo, "rev-parse", "specfeat")
+    assert "unrelated.txt" in git(repo, "status", "--porcelain")
+
+
+def test_first_story_clean_feature_dir_no_commit(repo):
+    before = git(repo, "rev-parse", "specfeat")
+    cmd.start_story(ns(11), mkctx(repo))
+    assert git(repo, "rev-parse", "specfeat") == before
+
+
+def test_first_story_refuses_off_feature_branch(repo):
+    git(repo, "checkout", "-q", "main")
+    with pytest.raises(cli.Refusal, match="specfeat"):
+        cmd.start_story(ns(11), mkctx(repo))
+
+
+def test_story_commands_refuse_when_label_removed(repo):
+    with pytest.raises(cli.Refusal, match="coding-agent"):
+        cmd.start_story(ns(11), mkctx(repo, FakeGh(labels=())))
+    StateDir(repo, EPIC).write("stories/11/state", {"branch": "11-x", "base": "main"})
+    gh = FakeGh(labels=())
+    with pytest.raises(cli.Refusal, match="coding-agent"):
+        cmd.open_pr(ns(11), mkctx(repo, gh))
+    assert not [c for c in gh.calls if c[0] in ("pr_create", "pr_comment")]
+
+
+def test_open_pr_clears_head_sha_before_push(repo, monkeypatch):
+    def fake_git(args, cwd):
+        if args[0] == "rev-parse":
+            raise subprocess.CalledProcessError(128, args, stderr="boom")
+        return ""
+    monkeypatch.setattr(cmd, "git", fake_git)
+    StateDir(repo, EPIC).write("stories/11/state", {"branch": "11-x", "base": "main", "pr": 5,
+        "head_sha": "oldsha", "last_push_at": "2026-01-01T00:00:00Z"})
+    StateDir(repo, EPIC).write("stories/11/pr", {"head_sha": "oldsha"})
+    with pytest.raises(Exception):
+        cmd.open_pr(ns(11), mkctx(repo))
+    assert StateDir(repo, EPIC).read("stories/11/state")["head_sha"] == ""
+    assert StateDir(repo, EPIC).read("stories/11/pr")["head_sha"] == ""
 
 
 def test_start_story_refusals(repo):
@@ -192,12 +265,14 @@ def test_pr_status_latest_per_login_and_wait(repo):
 def set_pr_stage(project, roles, require):
     import yaml
     from issue_flow import config as config_mod
+    git(project, "checkout", "-q", "main")       # stages are read from the default branch
     p = project / config_mod.CONFIG_REL
     cfg = yaml.safe_load(p.read_text())
     cfg["stages"]["pr"]["roles"] = roles
     cfg["stages"]["pr"]["require"] = require
     p.write_text(yaml.safe_dump(cfg))
     commit_config(project)
+    git(project, "checkout", "-q", "-")
 
 
 def test_stale_approval_after_failed_comment(repo, monkeypatch):
@@ -260,3 +335,12 @@ def test_no_last_push_never_counts_reviews(repo):
     StateDir(repo, EPIC).write("stories/11/state", {"pr": 5, "pr_url": "u"})
     ctx = mkctx(repo, FakeGh([rv("team_lead-user", "APPROVED")]))
     assert cmd.pr_status(ns(11, wait=False), ctx)["status"] == "pending"
+
+
+def test_story_one_pr_targets_default_branch(repo, monkeypatch):
+    cmd.start_story(ns(11), mkctx(repo))
+    monkeypatch.setattr(cmd, "git", lambda args, cwd: "abc\n")
+    gh = FakeGh()
+    cmd.open_pr(ns(11), mkctx(repo, gh))
+    create = [c for c in gh.calls if c[0] == "pr_create"][0]
+    assert create[1:3] == ("11-login-api-tokens-refresh", "main")
