@@ -157,3 +157,37 @@ def test_set_status_refusals(project):
         cmd.set_story_status(ns(epic=EPIC, story=999, status="done"), ctx)
     with pytest.raises(cli.Refusal, match="status"):
         cmd.set_story_status(ns(epic=EPIC, story=101, status="bogus"), ctx)
+
+
+def test_link_failure_does_not_duplicate(project):
+    setup_feature(project)
+    ctx = make_ctx(project)
+    approve(project, ctx)
+
+    def boom(p, c):
+        raise RuntimeError("link failed")
+    ctx.gh.add_sub_issue = boom
+    with pytest.raises(RuntimeError):
+        cmd.create_stories(ns(epic=EPIC), ctx)
+    m = StateDir(project, EPIC).read("issue-mapping")
+    assert m["stories"][0]["number"] == 101 and m["stories"][0]["linked"] is False
+    ctx2 = make_ctx(project)
+    cmd.create_stories(ns(epic=EPIC), ctx2)
+    assert [c[3] for c in ctx2.gh.created] == [101]  # only story 2 created (fresh fake counter)
+    assert (EPIC, 101) in ctx2.gh.subs
+    assert all(s["linked"] for s in StateDir(project, EPIC).read("issue-mapping")["stories"])
+
+
+def test_handedited_breakdown_refused(project):
+    setup_feature(project)
+    ctx = make_ctx(project)
+    cmd.breakdown(ns(epic=EPIC, tasks=None), ctx)
+    st = StateDir(project, EPIC)
+    bd = st.path / "breakdown.md"
+    bd.write_text(bd.read_text() + "\n- [ ] T999 sneaky\n")
+    h = content_hash([project / "specs/001-x/tasks.md", bd], base=project)
+    st.write("requests", {"tasks": [{"id": "IF-tasks-r1", "hash": h}]})
+    st.write("tasks", {"status": "approved", "request_id": "IF-tasks-r1"})
+    with pytest.raises(cli.Refusal, match="does not match tasks.md"):
+        cmd.create_stories(ns(epic=EPIC), ctx)
+    assert ctx.gh.created == []

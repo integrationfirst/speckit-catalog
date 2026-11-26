@@ -59,6 +59,9 @@ def create_stories(args, ctx) -> dict:
     tpath = _tasks_path(args, ctx, state)
     _require_approved(ctx, state, tpath)
     plans = _plan(tpath)
+    if (state.path / "breakdown.md").read_text() != render_breakdown(plans):
+        raise cli.Refusal("breakdown.md does not match tasks.md; "
+                          "re-run breakdown and get it re-approved")
     mapping = state.read("issue-mapping") or {"epic": epic, "stories": []}
     stories = mapping["stories"]
     label = ctx.config.trigger_label
@@ -67,18 +70,23 @@ def create_stories(args, ctx) -> dict:
         ids = [t.id for t in plan.tasks]
         have = stories[i] if i < len(stories) else None
         if have and have.get("number") and have["title"] == plan.title:
-            result.append(have)
-            continue
-        n = ctx.gh.create_issue(plan.title, story_body(epic, i, plan), [label])
-        ctx.gh.add_sub_issue(epic, n)
-        if ctx.dry_run or not n:
-            result.append({"number": None, "title": plan.title, "task_ids": ids,
-                           "status": "todo", "dry_run": True})
-            continue
-        rec = {"number": n, "title": plan.title, "task_ids": ids, "status": "todo"}
-        del stories[i:]          # drop any stale mapping at/after this index
-        stories.append(rec)
-        state.write("issue-mapping", {"epic": epic, "stories": stories})  # persist per story
+            rec = have
+        else:
+            n = ctx.gh.create_issue(plan.title, story_body(epic, i, plan), [label])
+            if ctx.dry_run or not n:
+                ctx.gh.add_sub_issue(epic, n)
+                result.append({"number": None, "title": plan.title, "task_ids": ids,
+                               "status": "todo", "dry_run": True})
+                continue
+            rec = {"number": n, "title": plan.title, "task_ids": ids,
+                   "status": "todo", "linked": False}
+            del stories[i:]          # drop any stale mapping at/after this index
+            stories.append(rec)
+            state.write("issue-mapping", {"epic": epic, "stories": stories})  # before linking
+        if not rec.get("linked", True):
+            ctx.gh.add_sub_issue(epic, rec["number"])
+            rec["linked"] = True
+            state.write("issue-mapping", {"epic": epic, "stories": stories})
         result.append(rec)
     return {"epic": epic, "stories": result}
 
