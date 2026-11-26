@@ -344,3 +344,22 @@ def test_story_one_pr_targets_default_branch(repo, monkeypatch):
     cmd.open_pr(ns(11), mkctx(repo, gh))
     create = [c for c in gh.calls if c[0] == "pr_create"][0]
     assert create[1:3] == ("11-login-api-tokens-refresh", "main")
+
+
+# R25: non-stacked Story 1 must not commit the docs and then branch away from them
+def test_non_stacked_first_story_keeps_docs_uncommitted(repo):
+    import yaml
+    from issue_flow import config as config_mod
+    p = repo / config_mod.CONFIG_REL
+    cfg = yaml.safe_load(p.read_text())
+    cfg["git"]["stacked"] = False
+    p.write_text(yaml.safe_dump(cfg))
+    fd = repo / "specs/specfeat"
+    fd.mkdir(parents=True)
+    (fd / "tasks.md").write_text("# tasks")
+    (fd / "plan.md").write_text("# plan")
+    before = git(repo, "rev-parse", "specfeat")
+    r = cmd.start_story(ns(11), mkctx(repo))
+    assert r["branch_point"] == "main"
+    assert git(repo, "rev-parse", "specfeat") == before
+    assert (fd / "tasks.md").read_text() == "# tasks" and (fd / "plan.md").is_file()

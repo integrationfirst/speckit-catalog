@@ -84,7 +84,7 @@
       "verified": true,
       "vetting": {
         "vetted_at": "2026-11-26",
-        "archive_sha256": "85cabcad3742bd3623a171bfd9a2f4bcb70fd79d5560442d4998492e7715082a",
+        "archive_sha256": "feff3cc6d14c90ad0faa61af2cf6d8ffdcc2398fa6e71b48aedb4e0b0da233f1",
         "notes": "First-party extension (integrationfirst). 4 Markdown commands plus a Python CLI (bin/issue-flow.sh) that calls gh and git. Writes to GitHub (issues, comments, branches, PRs) and optionally Confluence via the agent. Approvals only count from logins in the config committed on the default branch. Headless permissions exclude gh and git push and deny edits to the extension directory. Zip excludes tests/."
       },
       "created_at": "2026-11-26T00:00:00Z",

@@ -65,8 +65,9 @@ def start_story(args, ctx) -> dict:
     try:
         exists = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
                                 cwd=ctx.root, capture_output=True).returncode == 0
-        if not exists and i == 0:
-            # the spec documents travel with Story 1's PR
+        if not exists and i == 0 and cfg.git.stacked:
+            # stacked: the spec documents travel with Story 1's PR (non-stacked: uncommitted
+            # docs carry over the checkout, as before)
             _commit_feature_docs(ctx.root, fb, st0.get("feature_dir", ""), args.epic)
         git(["checkout", branch] if exists else ["checkout", "-b", branch, branch_point], ctx.root)
     except subprocess.CalledProcessError as e:
