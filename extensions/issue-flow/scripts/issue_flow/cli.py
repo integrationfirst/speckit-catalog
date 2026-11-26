@@ -9,9 +9,6 @@ import traceback
 from pathlib import Path
 from typing import Callable
 
-if __package__ in (None, ""):  # executed as a script
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from issue_flow import config as config_mod  # noqa: E402
 from issue_flow.config import ConfigError  # noqa: E402
 
@@ -46,9 +43,17 @@ def _emit(obj: dict) -> None:
     sys.stdout.write(json.dumps(obj) + "\n")
 
 
+class _Parser(argparse.ArgumentParser):
+    """Help/usage/errors go to stderr so stdout carries only the JSON result."""
+
+    def _print_message(self, message, file=None):
+        if message:
+            sys.stderr.write(message)
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    parser = argparse.ArgumentParser(prog="issue-flow")
+    parser = _Parser(prog="issue-flow")
     parser.add_argument("--root", default=None, help="project root (default: cwd)")
     sub = parser.add_subparsers(dest="command", required=True)
     for name, (_, setup) in sorted(_REGISTRY.items()):
@@ -62,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         if code != 0:
             _emit({"error": "invalid arguments"})
             return 2
+        _emit({"help": True})
         return 0
     try:
         ctx = Context(Path(args.root) if args.root else Path.cwd(),
@@ -76,7 +82,3 @@ def main(argv: list[str] | None = None) -> int:
         traceback.print_exc(file=sys.stderr)
         _emit({"error": f"{type(e).__name__}: {e}"})
         return 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())

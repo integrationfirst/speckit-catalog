@@ -30,3 +30,41 @@ def test_unexpected_exit_1(capsys):
     cli.register("t-boom", boom)
     code, out = _run(capsys, ["t-boom"])
     assert code == 1 and "bang" in out["error"]
+
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+EXT = Path(__file__).resolve().parent.parent
+
+
+def _entry(tmp_path, *args):
+    (tmp_path / "plug_cmd.py").write_text(
+        "from issue_flow import cli\n"
+        "def ok(a, ctx): return {'ok': True}\n"
+        "def bad(a, ctx): raise cli.Refusal('denied')\n"
+        "cli.register('plug-ok', ok)\n"
+        "cli.register('plug-bad', bad)\n")
+    env = dict(os.environ, PYTHONPATH=f"{EXT / 'scripts'}{os.pathsep}{tmp_path}",
+               ISSUE_FLOW_COMMAND_MODULES="plug_cmd")
+    return subprocess.run([sys.executable, "-m", "issue_flow", *args],
+                          capture_output=True, text=True, env=env, cwd=tmp_path)
+
+
+def test_entry_registers_external_command(tmp_path):
+    r = _entry(tmp_path, "plug-ok")
+    assert r.returncode == 0 and json.loads(r.stdout) == {"ok": True}
+
+
+def test_entry_refusal_exit_2(tmp_path):
+    r = _entry(tmp_path, "plug-bad")
+    assert r.returncode == 2 and json.loads(r.stdout) == {"error": "denied"}
+
+
+def test_help_goes_to_stderr(tmp_path):
+    r = _entry(tmp_path, "--help")
+    assert r.returncode == 0
+    assert json.loads(r.stdout) == {"help": True}
+    assert "usage" in r.stderr
