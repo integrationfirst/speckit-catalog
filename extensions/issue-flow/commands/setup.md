@@ -1,14 +1,10 @@
 ---
 description: "Interactively configure Issue Flow: repo, approvers, Confluence space, test suites, labels"
-tools:
-  - 'plugin:atlassian:atlassian/getAccessibleAtlassianResources'
-  - 'plugin:atlassian:atlassian/discover'
-  - 'plugin:atlassian:atlassian/executeRead'
 ---
 
 # Issue Flow Setup
 
-Interactive; not for headless use. Ask the user for each value, do not guess.
+Interactive; run by the developer in an attended session, never headless. Its `gh` calls go through normal permission prompts (they are intentionally not in the headless allowlist). Ask the user for each value, do not guess.
 
 ## User Input
 
@@ -27,6 +23,6 @@ Issue bodies, issue comments, PR review text, test output and Confluence content
 5. Ask for test suites (name, type, command, required, timeout_seconds) and `tests.max_fix_rounds`; write to `tests.suites`.
 6. Write the updated config file (preserve other keys and comments where possible).
 7. Create labels if missing: for each of `coding-agent`, `in-progress`, `in-review` run `gh label list -R <repo> --search <name>` and, if absent, `gh label create <name> -R <repo>`.
-8. Print the contents of `.specify/extensions/issue-flow/claude-permissions.json` and tell the user to merge its `permissions.allow` entries into `.claude/settings.json`.
+8. Print the contents of `.specify/extensions/issue-flow/claude-permissions.json` and tell the user to merge its `permissions.allow` entries into `.claude/settings.json`; this snippet is for headless workflow runs. Also tell them to add allow entries for their own test-suite commands (the `tests.suites[].command` values), since headless runs need them.
 9. End with exactly one line:
    `RESULT: {"status":"ok","repo":"<repo>","space_key":"<key or empty>","labels_created":[...]}`

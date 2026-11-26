@@ -23,7 +23,7 @@ Let `D=.specify/issue-flow/<epic>`, `CLI=.specify/extensions/issue-flow/bin/issu
    - `$D/qa.json` if `status` is `rejected` (use its `feedback`);
    - `$D/stories/<story>/pr.json` if `status` is `changes_requested` (use its feedback).
    If none applies, report `{"status":"nothing_to_fix"}` and stop.
-2. Ensure you are on the story branch (`git branch --show-current`; switch with `git switch` to the branch in `stories/<story>/state.json` / `pr.json`).
+2. Verify you are on the story branch with `git rev-parse --abbrev-ref HEAD` (expected branch is in `stories/<story>/state.json` / `pr.json`). The orchestrator checks it out; if it differs, stop with an error RESULT. Use only `git add/commit/status/diff/log/rev-parse`.
 3. Work test-first: write or adjust a failing test reproducing each problem, confirm it fails, then change the code until it passes. Run the project's own tests locally as needed.
 4. Tick completed tasks in `<feature_dir>/tasks.md` (`feature_dir` from `$D/state.json`).
 5. Commit on the story branch: `git add` only source/test/tasks changes, then `git commit -m "fix(#<story>): <summary>"`.

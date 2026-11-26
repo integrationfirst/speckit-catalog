@@ -2,8 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(.specify/extensions/issue-flow/bin/issue-flow:*)",
-      "Bash(gh:*)",
-      "Bash(git:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git rev-parse:*)",
       "mcp__plugin_atlassian_atlassian__createConfluenceContent",
       "mcp__plugin_atlassian_atlassian__updateConfluenceContent",
       "mcp__plugin_atlassian_atlassian__getConfluenceContent",

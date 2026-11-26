@@ -1,13 +1,5 @@
 ---
 description: "Publish a stage artifact (spec/plan/tasks/qa) for approval: Confluence page(s) plus a GitHub approval request"
-tools:
-  - 'plugin:atlassian:atlassian/getAccessibleAtlassianResources'
-  - 'plugin:atlassian:atlassian/createConfluenceContent'
-  - 'plugin:atlassian:atlassian/updateConfluenceContent'
-  - 'plugin:atlassian:atlassian/getConfluenceContent'
-  - 'plugin:atlassian:atlassian/discover'
-  - 'plugin:atlassian:atlassian/executeRead'
-  - 'plugin:atlassian:atlassian/executeWrite'
 ---
 
 # Publish a Stage for Approval
