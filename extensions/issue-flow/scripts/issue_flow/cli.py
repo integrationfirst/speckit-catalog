@@ -25,6 +25,7 @@ class Context:
     def __init__(self, root: Path, dry_run: bool = False, gh=None):
         self.root = Path(root)
         self.dry_run = dry_run
+        self.env_dry_run = dry_run   # the env flag alone; dry_run may also come from state
         self._gh = gh
         self._config = None
 
@@ -96,6 +97,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         ctx = Context(Path(args.root) if args.root else Path.cwd(),
                       dry_run=os.environ.get("ISSUE_FLOW_DRY_RUN", "").strip().lower() in DRY_RUN_TRUE)
+        # Sticky per epic: a run started dry (pull-issue records it) stays dry for every later
+        # command, including those run by agent steps that do not inherit the workflow's env.
+        epic = getattr(args, "epic", None)
+        if epic is not None and not ctx.dry_run:
+            from issue_flow.state import StateDir
+            ctx.dry_run = bool(StateDir(ctx.root, epic).read("state").get("dry_run"))
         func = _REGISTRY[args.command][0]
         _emit(func(args, ctx))
         return 0

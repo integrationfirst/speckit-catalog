@@ -90,3 +90,38 @@ def test_ctx_gh_lazy_built_from_config(project):
 def test_ctx_gh_injectable(tmp_path):
     sentinel = object()
     assert cli.Context(tmp_path, gh=sentinel).gh is sentinel
+
+
+# R19: dry-run is sticky per epic via state.json, independent of env reaching agent steps
+def _no_gh(monkeypatch):
+    from issue_flow import gh as gh_mod
+
+    def boom(*a, **k):
+        raise AssertionError("gh must not be called in dry-run")
+    monkeypatch.setattr(gh_mod, "run_gh", boom)
+    monkeypatch.setattr(gh_mod.GitHub.__init__, "__defaults__", (boom, False))
+
+
+def test_state_dry_run_makes_request_post_nothing(capsys, project, monkeypatch):
+    from issue_flow.state import StateDir
+    monkeypatch.delenv("ISSUE_FLOW_DRY_RUN", raising=False)
+    _no_gh(monkeypatch)
+    StateDir(project, 7).write("state", {"dry_run": True})
+    art = project / "specs/f/spec.md"
+    art.parent.mkdir(parents=True)
+    art.write_text("# Spec\n")
+    code = cli.main(["--root", str(project), "request", "--epic", "7", "--stage", "spec",
+                     "--target", "7", "--artifact", "specs/f/spec.md"])
+    cap = capsys.readouterr()
+    assert code == 0 and json.loads(cap.out)["comment_id"] == 0
+    assert "DRY-RUN gh api -X POST repos/acme/widgets/issues/7/comments" in cap.err
+
+
+def test_state_without_dry_run_is_not_dry(capsys, project, monkeypatch):
+    from issue_flow.state import StateDir
+    monkeypatch.delenv("ISSUE_FLOW_DRY_RUN", raising=False)
+    StateDir(project, 7).write("state", {"dry_run": False})
+    cli.register("t-dry2", lambda a, ctx: {"dry": ctx.dry_run}, lambda sp: sp.add_argument("--epic", type=int))
+    assert _run(capsys, ["--root", str(project), "t-dry2", "--epic", "7"]) == (0, {"dry": False})
+    StateDir(project, 8).write("state", {"dry_run": True})
+    assert _run(capsys, ["--root", str(project), "t-dry2", "--epic", "8"]) == (0, {"dry": True})

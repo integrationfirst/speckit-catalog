@@ -71,12 +71,20 @@ steps:
             type: switch
             expression: "{{ inputs.stage }}"
             cases:
+              # speckit.specify normally creates a new feature directory; its explicit
+              # SPECIFY_FEATURE_DIRECTORY path rewrites spec.md in an existing directory
+              # instead. Branch creation only happens in a before_specify hook, so the
+              # args forbid it. record-feature then re-reads the branch/dir.
               spec:
+                - id: stage_feature
+                  type: shell
+                  run: "cat .specify/issue-flow/{{ inputs.epic }}/state.json"
+                  output_format: json
                 - id: stage_regen_spec
                   command: speckit.specify
                   integration: "{{ inputs.integration }}"
                   input:
-                    args: "Revise the EXISTING feature specification for this issue in place (do not create a new feature or branch).\n\n{{ inputs.generator_args }}\n\nReviewer feedback:\n{{ steps.stage_wait.output.data.feedback }}"
+                    args: "SPECIFY_FEATURE_DIRECTORY={{ steps.stage_feature.output.data.feature_dir }}\n\nUPDATE MODE: revise the EXISTING specification {{ steps.stage_feature.output.data.feature_dir }}/spec.md in place for the current feature branch {{ steps.stage_feature.output.data.feature_branch }}. Use SPECIFY_FEATURE_DIRECTORY exactly as given. Do NOT create a new feature directory, do NOT create or switch git branches, and do NOT run branch-creating before_specify hooks. Keep everything the reviewers did not object to; address the reviewer feedback below.\n\nOriginal issue:\n{{ inputs.generator_args }}\n\nReviewer feedback:\n{{ steps.stage_wait.output.data.feedback }}"
                 - id: stage_record_feature
                   type: shell
                   run: ".specify/extensions/issue-flow/bin/issue-flow record-feature --epic {{ inputs.epic }}"

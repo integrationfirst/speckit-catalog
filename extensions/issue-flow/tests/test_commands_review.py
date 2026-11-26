@@ -194,3 +194,32 @@ def test_rejected_unchanged_refuses_changed_reposts_pending_reused(project):
     (project / art).write_text("revised")
     out = review.request(req_args(art), ctx)
     assert out["id"] == "IF-spec-r2" and len(posts(runner)) == 1
+
+
+# R19: pull-issue records dry_run and refuses a real run on a dry-run state dir
+def test_pull_issue_records_dry_run(project):
+    ctx, runner = make_ctx(project, routes(), dry=True)
+    review.pull_issue(ns(epic=7), ctx)
+    assert StateDir(project, 7).read("state")["dry_run"] is True
+    assert posts(runner) == []
+
+
+def test_pull_issue_records_real_run(project):
+    ctx, _ = make_ctx(project, routes())
+    review.pull_issue(ns(epic=7), ctx)
+    assert StateDir(project, 7).read("state")["dry_run"] is False
+
+
+def test_pull_issue_refuses_real_run_on_dry_state(project):
+    StateDir(project, 7).write("state", {"dry_run": True})
+    ctx, _ = make_ctx(project, routes())          # env not dry
+    ctx.dry_run = True                            # as main() derives it from state
+    with pytest.raises(cli.Refusal, match=r"remove \.specify/issue-flow/7/"):
+        review.pull_issue(ns(epic=7), ctx)
+
+
+def test_pull_issue_dry_env_on_dry_state_ok(project):
+    StateDir(project, 7).write("state", {"dry_run": True})
+    ctx, _ = make_ctx(project, routes(), dry=True)
+    review.pull_issue(ns(epic=7), ctx)
+    assert StateDir(project, 7).read("state")["dry_run"] is True

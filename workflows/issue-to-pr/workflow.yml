@@ -18,9 +18,11 @@ workflow:
 # prompt; answer it with `specify workflow resume <run-id>` from a terminal (TTY).
 #
 # dry_run=true exports ISSUE_FLOW_DRY_RUN to every issue-flow CLI step, which
-# logs GitHub writes (`DRY-RUN gh ...` on stderr) instead of making them. Agent
-# command steps (speckit.*) cannot receive step env: for a fully dry run also
-# `export ISSUE_FLOW_DRY_RUN=1` in the shell that runs `specify workflow run`.
+# logs GitHub writes (`DRY-RUN gh ...` on stderr) instead of making them.
+# `pull-issue` records the mode in .specify/issue-flow/<epic>/state.json and every
+# later CLI call for that epic stays dry, including the ones agent steps
+# (publish) make without the step env. A dry-run state is sticky: for a real run
+# afterwards, remove .specify/issue-flow/<epic>/ first (pull-issue refuses otherwise).
 
 requires:
   speckit_version: ">=1.4.0"

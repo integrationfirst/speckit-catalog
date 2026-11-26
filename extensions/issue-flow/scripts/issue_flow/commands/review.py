@@ -24,6 +24,11 @@ def _git_branch(root: Path) -> str:
 
 # -- pull-issue
 def pull_issue(args, ctx) -> dict:
+    state = StateDir(ctx.root, args.epic)
+    st = state.read("state")
+    if st.get("dry_run") and not ctx.env_dry_run:
+        raise cli.Refusal(f"epic #{args.epic} state is from a dry run; remove "
+                          f".specify/issue-flow/{args.epic}/ to start a real run")
     issue = ctx.gh.issue(args.epic)
     label = ctx.config.trigger_label
     if label not in issue["labels"]:
@@ -35,6 +40,9 @@ def pull_issue(args, ctx) -> dict:
     path = ctx.root / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines))
+    if "dry_run" not in st:
+        st["dry_run"] = bool(ctx.dry_run)
+        state.write("state", st)
     return {"epic": args.epic, "title": issue["title"], "path": rel.as_posix()}
 
 
