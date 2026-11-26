@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-11-26T00:00:00Z",
+  "updated_at": "2026-11-26T12:00:00Z",
   "catalog_url": "https://raw.githubusercontent.com/integrationfirst/speckit-catalog/main/catalog.json",
   "extensions": {
     "jira": {
@@ -24,7 +24,12 @@
         "commands": 3,
         "hooks": 1
       },
-      "tags": ["issue-tracking", "jira", "atlassian", "project-management"],
+      "tags": [
+        "issue-tracking",
+        "jira",
+        "atlassian",
+        "project-management"
+      ],
       "verified": true,
       "vetting": {
         "vetted_at": "2026-11-26",
@@ -33,6 +38,57 @@
       },
       "created_at": "2026-03-05T00:00:00Z",
       "updated_at": "2026-03-05T00:00:00Z"
+    },
+    "issue-flow": {
+      "name": "Issue Flow",
+      "id": "issue-flow",
+      "description": "GitHub issue-driven spec-driven development flow with approvals, stacked PRs and test gating. Pairs with the issue-to-pr and issue-flow-stage workflows.",
+      "author": "integrationfirst",
+      "version": "0.1.0",
+      "download_url": "https://github.com/integrationfirst/speckit-catalog/releases/download/issue-flow-v0.1.0/issue-flow-0.1.0.zip",
+      "repository": "https://github.com/integrationfirst/speckit-catalog",
+      "homepage": "https://github.com/integrationfirst/speckit-catalog",
+      "documentation": "https://github.com/integrationfirst/speckit-catalog/blob/main/README.md",
+      "changelog": "https://github.com/integrationfirst/speckit-catalog/blob/main/README.md",
+      "license": "MIT",
+      "category": "integration",
+      "effect": "read-write",
+      "requires": {
+        "speckit_version": ">=1.4.0",
+        "tools": [
+          {
+            "name": "gh",
+            "required": true
+          },
+          {
+            "name": "git",
+            "required": true
+          },
+          {
+            "name": "uv",
+            "required": true
+          }
+        ]
+      },
+      "provides": {
+        "commands": 4,
+        "hooks": 0
+      },
+      "tags": [
+        "github",
+        "issues",
+        "approvals",
+        "pull-requests",
+        "workflow"
+      ],
+      "verified": true,
+      "vetting": {
+        "vetted_at": "2026-11-26",
+        "archive_sha256": "27176c4960de8dd5675a7445cafbb58dcaa67c268259c468c8e494cb968b1978",
+        "notes": "First-party extension (integrationfirst). 4 Markdown commands plus a Python CLI (bin/issue-flow) that calls gh and git. Writes to GitHub (issues, comments, branches, PRs) and optionally Confluence via the agent. Approvals only count from configured logins. Headless permissions exclude gh and git push. Zip excludes tests/."
+      },
+      "created_at": "2026-11-26T00:00:00Z",
+      "updated_at": "2026-11-26T00:00:00Z"
     }
   }
 }
