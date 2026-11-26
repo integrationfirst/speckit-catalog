@@ -21,8 +21,20 @@ class Context:
     def __init__(self, root: Path, dry_run: bool = False, gh=None):
         self.root = Path(root)
         self.dry_run = dry_run
-        self.gh = gh
+        self._gh = gh
         self._config = None
+
+    @property
+    def gh(self):
+        """GitHub adapter, built on first access from config (tests may inject one)."""
+        if self._gh is None:
+            from issue_flow.gh import GitHub
+            self._gh = GitHub(self.config.repo, dry_run=self.dry_run)
+        return self._gh
+
+    @gh.setter
+    def gh(self, value):
+        self._gh = value
 
     @property
     def config(self):

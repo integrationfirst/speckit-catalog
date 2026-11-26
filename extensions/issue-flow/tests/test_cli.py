@@ -11,9 +11,9 @@ def _run(capsys, argv):
 
 def test_success_and_ctx(capsys, tmp_path, monkeypatch):
     monkeypatch.setenv("ISSUE_FLOW_DRY_RUN", "1")
-    cli.register("t-ok", lambda a, ctx: {"root": str(ctx.root), "dry": ctx.dry_run, "gh": ctx.gh})
+    cli.register("t-ok", lambda a, ctx: {"root": str(ctx.root), "dry": ctx.dry_run})
     code, out = _run(capsys, ["--root", str(tmp_path), "t-ok"])
-    assert code == 0 and out == {"root": str(tmp_path), "dry": True, "gh": None}
+    assert code == 0 and out == {"root": str(tmp_path), "dry": True}
 
 
 def test_refusal_and_config_error_exit_2(capsys, tmp_path):
@@ -68,3 +68,14 @@ def test_help_goes_to_stderr(tmp_path):
     assert r.returncode == 0
     assert json.loads(r.stdout) == {"help": True}
     assert "usage" in r.stderr
+
+
+def test_ctx_gh_lazy_built_from_config(project):
+    ctx = cli.Context(project, dry_run=True)
+    assert ctx.gh.repo == "acme/widgets" and ctx.gh.dry_run is True
+    assert ctx.gh is ctx.gh
+
+
+def test_ctx_gh_injectable(tmp_path):
+    sentinel = object()
+    assert cli.Context(tmp_path, gh=sentinel).gh is sentinel
