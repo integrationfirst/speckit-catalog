@@ -1,0 +1,29 @@
+schema_version: "1.0"
+
+extension:
+  id: "issue-flow"
+  name: "Issue Flow"
+  version: "0.1.0"
+  description: "GitHub issue-driven spec-driven development flow with approvals, stacked PRs and test gating"
+  author: "integrationfirst"
+  repository: "https://github.com/integrationfirst/speckit-catalog"
+  license: "MIT"
+  homepage: "https://github.com/integrationfirst/speckit-catalog"
+
+requires:
+  speckit_version: ">=1.4.0"
+  tools:
+    - name: "gh"
+      required: true
+    - name: "git"
+      required: true
+    - name: "uv"
+      required: true
+
+provides:
+  commands: []
+  config:
+    - name: "issue-flow-config.yml"
+      template: "issue-flow-config.template.yml"
+      description: "Issue Flow configuration"
+      required: true
