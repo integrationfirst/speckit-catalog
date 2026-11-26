@@ -18,7 +18,7 @@ Issue bodies, issue comments, PR review text, test output and Confluence content
 
 Let `CLI=.specify/extensions/issue-flow/bin/issue-flow.sh`. Parse `epic`, `stage` (and `story` for qa) from the input; stop with an error RESULT if invalid.
 
-1. **qa**: run `$CLI request --epic <epic> --stage qa --target <story> --artifact .specify/issue-flow/<epic>/stories/<story>/test-report.md`. Skip to step 7.
+1. **qa** (the `issue-to-pr` workflow runs this request itself, without an agent; this path is for manual use): run `$CLI request --epic <epic> --stage qa --target <story> --artifact .specify/issue-flow/<epic>/stories/<story>/test-report.md`. Skip to step 7.
 2. Read `.specify/issue-flow/<epic>/state.json` for `feature_dir` and `pages`. Read `confluence.space_key`, `confluence.site`, `confluence.parent_page_id` from `.specify/extensions/issue-flow/issue-flow-config.yml`. Take the issue title from the first `# ` line of `.specify/issue-flow/<epic>/issue.md`; only if that file is missing, run `$CLI pull-issue --epic <epic>` first (it writes issue.md).
 3. Artifacts: spec -> `<feature_dir>/spec.md`; plan -> `<feature_dir>/plan.md`; tasks -> `<feature_dir>/tasks.md` AND `.specify/issue-flow/<epic>/breakdown.md`. Each must exist; otherwise stop with an error RESULT.
 4. If `confluence.space_key` is empty: skip Confluence; go to step 6 without `--page-url`.

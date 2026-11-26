@@ -72,15 +72,64 @@ Per-extension setup notes:
    ```
 2. Install: `specify extension add issue-flow`
 3. Run `/speckit-issue-flow-setup` (attended) to create the config.
-4. Merge `.specify/extensions/issue-flow/claude-permissions.json` into `.claude/settings.json`, and also allow
-   your project's own test commands (headless runs cannot prompt).
-5. Create a GitHub issue labelled `coding-agent`.
-6. Install the workflows:
+4. **Commit and push the config to the default branch** (`git.default_branch`, e.g. `main`) before any run:
+   ```bash
+   git add .specify/extensions/issue-flow/issue-flow-config.yml
+   git commit -m "chore: issue-flow config" && git push origin main
+   ```
+   `approvers` and `stages` are read only from `origin/<default_branch>` (fallback: the local
+   `<default_branch>`), never from the working tree, so an agent step editing the file cannot change who
+   may approve. A run refuses to start if the committed config is missing. After changing approvers,
+   commit, push and `git fetch` again.
+5. Merge `.specify/extensions/issue-flow/claude-permissions.json` into `.claude/settings.json` (both `allow`
+   and `deny`), and also allow your project's own test commands (headless runs cannot prompt). The full
+   snippet:
+   ```json
+   {
+     "permissions": {
+       "allow": [
+         "Read",
+         "Edit",
+         "Write",
+         "Bash(.specify/scripts/bash/*:*)",
+         "Bash(.specify/extensions/issue-flow/bin/issue-flow.sh:*)",
+         "Bash(git add:*)",
+         "Bash(git commit:*)",
+         "Bash(git status:*)",
+         "Bash(git diff:*)",
+         "Bash(git log:*)",
+         "Bash(git rev-parse:*)",
+         "mcp__plugin_atlassian_atlassian__createConfluenceContent",
+         "mcp__plugin_atlassian_atlassian__updateConfluenceContent",
+         "mcp__plugin_atlassian_atlassian__getConfluenceContent",
+         "mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources",
+         "mcp__plugin_atlassian_atlassian__discover",
+         "mcp__plugin_atlassian_atlassian__executeRead",
+         "mcp__plugin_atlassian_atlassian__executeWrite"
+       ],
+       "deny": [
+         "Edit(.specify/extensions/issue-flow/**)",
+         "Write(.specify/extensions/issue-flow/**)"
+       ]
+     }
+   }
+   ```
+   The `deny` entries stop agent steps from editing the extension and its config.
+6. Choose the `team_lead` logins (they approve PRs) so that **none of them is the login that runs the
+   workflow**: PRs are opened with the developer's `gh` login, and GitHub refuses an APPROVE review from
+   the PR author, so that person could never approve the PR stage.
+7. Create a GitHub issue labelled `coding-agent`.
+8. Install the workflows:
    ```bash
    specify workflow add issue-to-pr
    specify workflow add issue-flow-stage
    ```
-7. Run: `specify workflow run issue-to-pr -i epic=<n>`
+9. Run: `specify workflow run issue-to-pr -i epic=<n>`
+
+Story 1 branches from the spec feature branch (the spec, plan and tasks are committed there first, so they
+travel with Story 1's PR) and its PR targets the default branch. With `git.stacked: true`, Story N branches
+from and targets Story N-1's branch. Run state lives in `.specify/issue-flow/`, which is git-ignored.
+Removing the `coding-agent` label from the Epic stops the flow at its next GitHub step.
 
 ### While a run is waiting
 
@@ -88,7 +137,7 @@ The terminal only shows `Shell command exited with code 3`: the run is waiting f
 Run `/speckit-issue-flow-status <n>` (or `specify workflow status <run-id>`) to see who it is waiting for.
 
 - Approvers comment `/approve <id>` or `/reject <id> <reason>` on the issue.
-- PR approval is a GitHub review by a `team_lead`.
+- PR approval is a GitHub review by a `team_lead` (not the login running the workflow; see step 6).
 - Then continue with `specify workflow resume <run-id>`.
 - The fix-round exhaustion gate needs a TTY: resume it from an interactive terminal.
 
@@ -97,7 +146,7 @@ Run `/speckit-issue-flow-status <n>` (or `specify workflow status <run-id>`) to 
 `-i dry_run=true` logs GitHub writes (`DRY-RUN gh ...`) instead of making them. Confluence page writes
 by the publish agent still happen (leave `confluence.space_key` empty to skip). A dry run stops at the
 story loop, so no Stories are created. When switching between dry and real runs for an epic, start from a
-fresh state dir: `rm -rf .specify/issue-flow/<n>`.
+fresh state dir: `rm -rf .specify/issue-flow/<n>`; the CLI refuses to mix them (exit 2).
 
 ### Recovering a stuck run
 
