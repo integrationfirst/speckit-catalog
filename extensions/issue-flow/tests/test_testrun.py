@@ -100,3 +100,17 @@ def test_cli_one_json_object(project, capfd):
     code = cli.main(["--root", str(project), "run-tests", "--epic", "7", "--story", "12"])
     out = capfd.readouterr().out
     assert code == 0 and json.loads(out)["passed"] is True
+
+
+def test_non_utf8_output_is_normal_failure(project):
+    ctx = make_ctx(project, [suite("bin", "printf '\\377\\376 bad'; exit 1")])
+    r = cmd.run_tests(ns(), ctx)
+    assert r["passed"] is False and r["round"] == 1
+    assert (project / r["report"]).is_file()
+
+
+def test_stdin_is_devnull(project):
+    ctx = make_ctx(project, [suite("rd", "cat", timeout=30)])
+    t = time.monotonic()
+    r = cmd.run_tests(ns(), ctx)
+    assert time.monotonic() - t < 5 and r["passed"] is True

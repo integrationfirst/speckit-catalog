@@ -25,8 +25,8 @@ class SuiteResult:
 def run_suite(suite, root: Path) -> SuiteResult:
     """Run one configured suite command (config-sourced only) in root, capturing all output."""
     start = time.monotonic()
-    proc = subprocess.Popen(suite.command, shell=True, cwd=root, text=True,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    proc = subprocess.Popen(suite.command, shell=True, cwd=root, encoding="utf-8", errors="replace",
+                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             start_new_session=True)
     try:
         out, _ = proc.communicate(timeout=suite.timeout_seconds)
