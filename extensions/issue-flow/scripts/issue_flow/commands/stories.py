@@ -42,13 +42,17 @@ def breakdown(args, ctx) -> dict:
 
 
 def _require_approved(ctx, state: StateDir, tasks_path: Path) -> None:
-    if state.read("tasks").get("status") != "approved":
+    approval = state.read("tasks")
+    if approval.get("status") != "approved":
         raise cli.Refusal("tasks stage is not approved")
     hist = state.read("requests").get("tasks", [])
     bd = state.path / "breakdown.md"
     if not hist or not bd.is_file() or not tasks_path.is_file():
         raise cli.Refusal("tasks stage is not approved for the current breakdown "
                           "(no request or missing tasks.md/breakdown.md)")
+    if approval.get("request_id") != hist[-1]["id"]:
+        raise cli.Refusal(f"the tasks approval is for {approval.get('request_id')}, not the "
+                          f"latest request {hist[-1]['id']}; wait for its approval")
     if hist[-1]["hash"] != content_hash([tasks_path, bd], base=ctx.root):
         raise cli.Refusal("tasks.md/breakdown.md changed since approval; re-request approval")
 
@@ -58,6 +62,7 @@ def create_stories(args, ctx) -> dict:
     state = StateDir(ctx.root, epic)
     tpath = _tasks_path(args, ctx, state)
     _require_approved(ctx, state, tpath)
+    ctx.require_trigger_label(epic)
     plans = _plan(tpath)
     if (state.path / "breakdown.md").read_text() != render_breakdown(plans):
         raise cli.Refusal("breakdown.md does not match tasks.md; "

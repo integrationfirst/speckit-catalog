@@ -21,8 +21,12 @@ def ns(**kw):
 
 
 class FakeGH:
-    def __init__(self):
+    def __init__(self, labels=("coding-agent",)):
         self.created, self.subs, self.n = [], [], 100
+        self.labels = list(labels)
+
+    def issue(self, n):
+        return {"number": n, "labels": self.labels}
 
     def create_issue(self, title, body, labels):
         self.n += 1
@@ -125,7 +129,10 @@ def test_create_stories_idempotent(project):
 
 def test_dry_run_does_not_persist_fake_numbers(project):
     setup_feature(project)
-    ctx = make_ctx(project, GitHub("a/b", runner=FakeRunner(), dry_run=True), dry=True)
+    runner = FakeRunner([(lambda a, i: a[-1] == "repos/a/b/issues/7",
+                          {"number": 7, "labels": [{"name": "coding-agent"}]}),
+                         (lambda a, i: True, "")])
+    ctx = make_ctx(project, GitHub("a/b", runner=runner, dry_run=True), dry=True)
     approve(project, ctx)
     r = cmd.create_stories(ns(epic=EPIC), ctx)
     assert all(s["number"] is None and s["dry_run"] for s in r["stories"])
@@ -189,5 +196,29 @@ def test_handedited_breakdown_refused(project):
     st.write("requests", {"tasks": [{"id": "IF-tasks-r1", "hash": h}]})
     st.write("tasks", {"status": "approved", "request_id": "IF-tasks-r1"})
     with pytest.raises(cli.Refusal, match="does not match tasks.md"):
+        cmd.create_stories(ns(epic=EPIC), ctx)
+    assert ctx.gh.created == []
+
+
+# (c) the approval must be for the LATEST tasks request
+def test_create_stories_refuses_approval_of_older_request(project):
+    setup_feature(project)
+    ctx = make_ctx(project)
+    approve(project, ctx)
+    st = StateDir(project, EPIC)
+    reqs = st.read("requests")
+    reqs["tasks"].append({**reqs["tasks"][0], "id": "IF-tasks-r2"})
+    st.write("requests", reqs)
+    with pytest.raises(cli.Refusal, match="IF-tasks-r2"):
+        cmd.create_stories(ns(epic=EPIC), ctx)
+    assert ctx.gh.created == []
+
+
+# I10: removing the trigger label stops the flow
+def test_create_stories_refuses_when_label_removed(project):
+    setup_feature(project)
+    ctx = make_ctx(project, FakeGH(labels=()))
+    approve(project, ctx)
+    with pytest.raises(cli.Refusal, match="coding-agent"):
         cmd.create_stories(ns(epic=EPIC), ctx)
     assert ctx.gh.created == []
