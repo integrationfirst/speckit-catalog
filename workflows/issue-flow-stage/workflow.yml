@@ -1,0 +1,116 @@
+schema_version: "1.0"
+workflow:
+  id: "issue-flow-stage"
+  name: "Issue Flow approval stage"
+  version: "0.1.0"
+  author: "integrationfirst"
+  description: "Publish a spec/plan/tasks artifact for approval on GitHub, wait for the approvers, regenerate with feedback on rejection"
+
+# Called by `issue-to-pr` (a `type: workflow` step); it can also run on its own
+# once the stage's artifact exists.
+#
+# Approval waits use fail-then-resume, not gates: the `wait_*` shell step runs
+# `issue-flow check-approval --wait`, which exits 3 while the request is pending.
+# That fails the run with the "waiting for ..." message; once the approvers have
+# commented, `specify workflow resume <run-id>` re-runs only that step.
+#
+# The generator is chosen with a `switch` on `inputs.stage` because a templated
+# `command:` is not resolved by the engine (only `input.args` is).
+
+requires:
+  speckit_version: ">=1.4.0"
+
+inputs:
+  epic:
+    type: number
+    required: true
+    prompt: "Epic issue number"
+  stage:
+    type: string
+    required: true
+    enum: ["spec", "plan", "tasks"]
+    prompt: "Stage to publish and wait for (spec, plan or tasks)"
+  generator_args:
+    type: string
+    default: ""
+    prompt: "Arguments for the stage generator; reviewer feedback is appended on regeneration"
+  integration:
+    type: string
+    default: "auto"
+    prompt: "Integration to use ('auto' uses the project's initialized integration)"
+  dry_run:
+    type: boolean
+    default: false
+    prompt: "Log GitHub writes from the issue-flow CLI instead of making them"
+
+steps:
+  - id: stage_publish
+    command: speckit.issue-flow.publish
+    integration: "{{ inputs.integration }}"
+    input:
+      args: "{{ inputs.epic }} {{ inputs.stage }}"
+
+  - id: stage_loop
+    type: do-while
+    condition: "{{ steps.stage_wait.output.data.status != 'approved' }}"
+    max_iterations: 20
+    steps:
+      - id: stage_wait
+        type: shell
+        run: ".specify/extensions/issue-flow/bin/issue-flow check-approval --epic {{ inputs.epic }} --stage {{ inputs.stage }} --wait"
+        output_format: json
+        env:
+          ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
+
+      # rejected or stale: regenerate with the reviewer feedback, then republish (r<N+1>)
+      - id: stage_revise
+        type: if
+        condition: "{{ steps.stage_wait.output.data.status != 'approved' }}"
+        then:
+          - id: stage_generate
+            type: switch
+            expression: "{{ inputs.stage }}"
+            cases:
+              spec:
+                - id: stage_regen_spec
+                  command: speckit.specify
+                  integration: "{{ inputs.integration }}"
+                  input:
+                    args: "Revise the EXISTING feature specification for this issue in place (do not create a new feature or branch).\n\n{{ inputs.generator_args }}\n\nReviewer feedback:\n{{ steps.stage_wait.output.data.feedback }}"
+                - id: stage_record_feature
+                  type: shell
+                  run: ".specify/extensions/issue-flow/bin/issue-flow record-feature --epic {{ inputs.epic }}"
+                  output_format: json
+                  env:
+                    ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
+              plan:
+                - id: stage_regen_plan
+                  command: speckit.plan
+                  integration: "{{ inputs.integration }}"
+                  input:
+                    args: "{{ inputs.generator_args }}\n\nReviewer feedback:\n{{ steps.stage_wait.output.data.feedback }}"
+              tasks:
+                - id: stage_regen_tasks
+                  command: speckit.tasks
+                  integration: "{{ inputs.integration }}"
+                  input:
+                    args: "{{ inputs.generator_args }}\n\nReviewer feedback:\n{{ steps.stage_wait.output.data.feedback }}"
+                - id: stage_breakdown
+                  type: shell
+                  run: ".specify/extensions/issue-flow/bin/issue-flow breakdown --epic {{ inputs.epic }}"
+                  output_format: json
+                  env:
+                    ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
+          - id: stage_republish
+            command: speckit.issue-flow.publish
+            integration: "{{ inputs.integration }}"
+            input:
+              args: "{{ inputs.epic }} {{ inputs.stage }}"
+
+  # A do-while that hits max_iterations ends as `completed`; refuse to continue unapproved.
+  - id: stage_assert_approved
+    type: shell
+    run: "test \"$STAGE_STATUS\" = approved || { echo \"stage $STAGE not approved after the maximum number of revisions (status: $STAGE_STATUS)\" >&2; exit 1; }"
+    env:
+      STAGE: "{{ inputs.stage }}"
+      STAGE_STATUS: "{{ steps.stage_wait.output.data.status }}"

@@ -13,6 +13,10 @@ from issue_flow import config as config_mod  # noqa: E402
 from issue_flow.config import ConfigError  # noqa: E402
 
 
+# Workflows export "{{ inputs.dry_run | to_json }}" ("true"/"false"); shells use "1".
+DRY_RUN_TRUE = ("1", "true", "yes")
+
+
 class Refusal(Exception):
     """Validation/refusal: exit 2."""
 
@@ -91,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     try:
         ctx = Context(Path(args.root) if args.root else Path.cwd(),
-                      dry_run=os.environ.get("ISSUE_FLOW_DRY_RUN") == "1")
+                      dry_run=os.environ.get("ISSUE_FLOW_DRY_RUN", "").strip().lower() in DRY_RUN_TRUE)
         func = _REGISTRY[args.command][0]
         _emit(func(args, ctx))
         return 0

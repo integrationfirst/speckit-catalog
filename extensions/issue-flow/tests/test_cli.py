@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from issue_flow import cli
 from issue_flow.config import ConfigError
 
@@ -14,6 +16,15 @@ def test_success_and_ctx(capsys, tmp_path, monkeypatch):
     cli.register("t-ok", lambda a, ctx: {"root": str(ctx.root), "dry": ctx.dry_run})
     code, out = _run(capsys, ["--root", str(tmp_path), "t-ok"])
     assert code == 0 and out == {"root": str(tmp_path), "dry": True}
+
+
+@pytest.mark.parametrize("value,dry", [("1", True), ("true", True), ("TRUE", True), ("yes", True),
+                                       ("0", False), ("false", False), ("", False)])
+def test_dry_run_env_values(capsys, tmp_path, monkeypatch, value, dry):
+    # workflows export ISSUE_FLOW_DRY_RUN="{{ inputs.dry_run | to_json }}" -> "true"/"false"
+    monkeypatch.setenv("ISSUE_FLOW_DRY_RUN", value)
+    cli.register("t-dry", lambda a, ctx: {"dry": ctx.dry_run})
+    assert _run(capsys, ["--root", str(tmp_path), "t-dry"]) == (0, {"dry": dry})
 
 
 def test_refusal_and_config_error_exit_2(capsys, tmp_path):
