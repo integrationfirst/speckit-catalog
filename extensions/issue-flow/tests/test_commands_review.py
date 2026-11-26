@@ -165,3 +165,32 @@ def test_record_feature(project, monkeypatch):
     assert out == {"feature_branch": "007-widgets", "feature_dir": "specs/007-widgets"}
     st = StateDir(project, 7).read("state")
     assert st["feature_branch"] == "007-widgets" and st["feature_dir"] == "specs/007-widgets"
+
+
+def test_dry_run_request_does_not_block_real_request(project):
+    art = _art(project)
+    ctx, _ = make_ctx(project, routes(), dry=True)
+    assert review.request(req_args(art), ctx)["comment_id"] == 0
+    ctx, runner = make_ctx(project, routes())
+    out = review.request(req_args(art), ctx)
+    assert len(posts(runner)) == 1 and out["id"] == "IF-spec-r2" and out["comment_id"] == 555
+    assert [r["id"] for r in StateDir(project, 7).read("requests")["spec"]] == ["IF-spec-r1", "IF-spec-r2"]
+
+
+def test_rejected_unchanged_refuses_changed_reposts_pending_reused(project):
+    art = _art(project)
+    ctx, _ = make_ctx(project, routes())
+    review.request(req_args(art), ctx)
+    # (c) pending + unchanged -> reused
+    assert review.request(req_args(art), ctx)["reused"] is True
+    rej = [cm("product_owner-user", "/reject IF-spec-r1 not good")]
+    ctx, runner = make_ctx(project, routes(comments=rej))
+    # (a) rejected + unchanged -> refusal
+    with pytest.raises(cli.Refusal, match="artifact unchanged since rejected IF-spec-r1; "
+                                          "revise it before re-requesting"):
+        review.request(req_args(art), ctx)
+    assert not posts(runner)
+    # (b) rejected + changed -> new request posted
+    (project / art).write_text("revised")
+    out = review.request(req_args(art), ctx)
+    assert out["id"] == "IF-spec-r2" and len(posts(runner)) == 1

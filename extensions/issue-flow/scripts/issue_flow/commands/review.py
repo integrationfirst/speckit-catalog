@@ -101,7 +101,15 @@ def request(args, ctx) -> dict:
     reqs = state.read("requests")
     history = reqs.get(stage, [])
     if history and history[-1]["hash"] == digest:
-        return {**history[-1], "reused": True}
+        last = history[-1]
+        status = evaluate(last, ctx.gh.comments(last["target"]), ctx.config.stages[stage],
+                          ctx.config.approvers, digest)["status"]
+        if status == "rejected":
+            raise cli.Refusal(f"artifact unchanged since rejected {last['id']}; "
+                              "revise it before re-requesting")
+        if last["comment_id"] != 0 or ctx.dry_run:
+            return {**last, "reused": True}
+        # a dry-run record never posted a comment: fall through and post for real
     rid = next_request_id(reqs, stage)
     body = _body(ctx, stage, rid, getattr(args, "summary", None), getattr(args, "page_url", None),
                  [(a, p.read_text(errors="replace")) for a, p in zip(args.artifact, paths)])
