@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import commit_config
 from issue_flow import cli
 from issue_flow.commands import prs as cmd
 from issue_flow.prs import slugify
@@ -46,9 +47,6 @@ class FakeGh:
 
 @pytest.fixture
 def repo(project):
-    git(project, "init", "-q", "-b", "main")
-    git(project, "config", "user.email", "t@t")
-    git(project, "config", "user.name", "t")
     (project / "f.txt").write_text("x")
     git(project, "add", "f.txt")
     git(project, "commit", "-qm", "init")
@@ -199,6 +197,7 @@ def set_pr_stage(project, roles, require):
     cfg["stages"]["pr"]["roles"] = roles
     cfg["stages"]["pr"]["require"] = require
     p.write_text(yaml.safe_dump(cfg))
+    commit_config(project)
 
 
 def test_stale_approval_after_failed_comment(repo, monkeypatch):
