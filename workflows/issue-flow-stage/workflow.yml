@@ -14,6 +14,9 @@ workflow:
 # That fails the run with the "waiting for ..." message; once the approvers have
 # commented, `specify workflow resume <run-id>` re-runs only that step.
 #
+# dry_run: see issue-to-pr. Confluence page writes by the publish agent are not
+# routed through the CLI and still happen in a dry run.
+#
 # The generator is chosen with a `switch` on `inputs.stage` because a templated
 # `command:` is not resolved by the engine (only `input.args` is).
 
@@ -57,7 +60,7 @@ steps:
     steps:
       - id: stage_wait
         type: shell
-        run: ".specify/extensions/issue-flow/bin/issue-flow check-approval --epic {{ inputs.epic }} --stage {{ inputs.stage }} --wait"
+        run: ".specify/extensions/issue-flow/bin/issue-flow check-approval --epic {{ inputs.epic }} --stage {{ inputs.stage }} --target {{ inputs.epic }} --wait"
         output_format: json
         env:
           ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"

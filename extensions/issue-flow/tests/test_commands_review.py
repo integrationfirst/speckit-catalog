@@ -200,18 +200,19 @@ def test_rejected_unchanged_refuses_changed_reposts_pending_reused(project):
 def test_pull_issue_records_dry_run(project):
     ctx, runner = make_ctx(project, routes(), dry=True)
     review.pull_issue(ns(epic=7), ctx)
-    assert StateDir(project, 7).read("state")["dry_run"] is True
+    assert StateDir(project, 7).read("dry-run") == {"dry_run": True}
+    assert "dry_run" not in StateDir(project, 7).read("state")
     assert posts(runner) == []
 
 
 def test_pull_issue_records_real_run(project):
     ctx, _ = make_ctx(project, routes())
     review.pull_issue(ns(epic=7), ctx)
-    assert StateDir(project, 7).read("state")["dry_run"] is False
+    assert StateDir(project, 7).read("dry-run") == {"dry_run": False}
 
 
 def test_pull_issue_refuses_real_run_on_dry_state(project):
-    StateDir(project, 7).write("state", {"dry_run": True})
+    StateDir(project, 7).write("dry-run", {"dry_run": True})
     ctx, _ = make_ctx(project, routes())          # env not dry
     ctx.dry_run = True                            # as main() derives it from state
     with pytest.raises(cli.Refusal, match=r"remove \.specify/issue-flow/7/"):
@@ -219,7 +220,32 @@ def test_pull_issue_refuses_real_run_on_dry_state(project):
 
 
 def test_pull_issue_dry_env_on_dry_state_ok(project):
-    StateDir(project, 7).write("state", {"dry_run": True})
+    StateDir(project, 7).write("dry-run", {"dry_run": True})
     ctx, _ = make_ctx(project, routes(), dry=True)
     review.pull_issue(ns(epic=7), ctx)
-    assert StateDir(project, 7).read("state")["dry_run"] is True
+    assert StateDir(project, 7).read("dry-run") == {"dry_run": True}
+
+
+# Review fix 1: a QA approval for one Story must never satisfy another Story's wait
+def test_check_approval_target_mismatch_is_pending(project):
+    art = _art(project)
+    ctx, _ = make_ctx(project, routes())
+    review.request(req_args(art, stage="qa", target=8), ctx)       # Story #8's QA request
+    ctx, _ = make_ctx(project, routes(comments=[cm("qa_lead-user", "/approve IF-qa-r1")]))
+    assert review.check_approval(ns(epic=7, stage="qa", wait=False, target=8), ctx)["status"] == "approved"
+    out = review.check_approval(ns(epic=7, stage="qa", wait=False, target=9), ctx)
+    assert out["status"] == "pending" and out["request_id"] is None and out["target"] == 9
+    assert StateDir(project, 7).read("qa")["status"] == "pending"
+    with pytest.raises(cli.Waiting, match=r"no qa request for #9 yet \(latest IF-qa-r1 is for #8\)"):
+        review.check_approval(ns(epic=7, stage="qa", wait=True, target=9), ctx)
+
+
+def test_check_approval_target_mismatch_exit_3(project, capsys, monkeypatch):
+    art = _art(project)
+    ctx, _ = make_ctx(project, routes())
+    review.request(req_args(art, stage="qa", target=8), ctx)
+    monkeypatch.delenv("ISSUE_FLOW_DRY_RUN", raising=False)
+    code = cli.main(["--root", str(project), "check-approval", "--epic", "7", "--stage", "qa",
+                     "--target", "9", "--wait"])      # mismatch is decided before any gh read
+    cap = capsys.readouterr()
+    assert code == 3 and json.loads(cap.out)["status"] == "pending" and "#9" in cap.err

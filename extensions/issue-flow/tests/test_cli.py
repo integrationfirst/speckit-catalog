@@ -106,7 +106,7 @@ def test_state_dry_run_makes_request_post_nothing(capsys, project, monkeypatch):
     from issue_flow.state import StateDir
     monkeypatch.delenv("ISSUE_FLOW_DRY_RUN", raising=False)
     _no_gh(monkeypatch)
-    StateDir(project, 7).write("state", {"dry_run": True})
+    StateDir(project, 7).write("dry-run", {"dry_run": True})
     art = project / "specs/f/spec.md"
     art.parent.mkdir(parents=True)
     art.write_text("# Spec\n")
@@ -120,8 +120,18 @@ def test_state_dry_run_makes_request_post_nothing(capsys, project, monkeypatch):
 def test_state_without_dry_run_is_not_dry(capsys, project, monkeypatch):
     from issue_flow.state import StateDir
     monkeypatch.delenv("ISSUE_FLOW_DRY_RUN", raising=False)
-    StateDir(project, 7).write("state", {"dry_run": False})
+    StateDir(project, 7).write("dry-run", {"dry_run": False})
     cli.register("t-dry2", lambda a, ctx: {"dry": ctx.dry_run}, lambda sp: sp.add_argument("--epic", type=int))
     assert _run(capsys, ["--root", str(project), "t-dry2", "--epic", "7"]) == (0, {"dry": False})
-    StateDir(project, 8).write("state", {"dry_run": True})
+    StateDir(project, 8).write("dry-run", {"dry_run": True})
     assert _run(capsys, ["--root", str(project), "t-dry2", "--epic", "8"]) == (0, {"dry": True})
+
+
+def test_dry_run_survives_state_json_rewrite(capsys, project, monkeypatch):
+    # an agent rewriting state.json (e.g. pages[...]) must not drop the dry-run flag
+    from issue_flow.state import StateDir
+    monkeypatch.delenv("ISSUE_FLOW_DRY_RUN", raising=False)
+    StateDir(project, 7).write("dry-run", {"dry_run": True})
+    StateDir(project, 7).write("state", {"pages": {"spec": "1"}})
+    cli.register("t-dry3", lambda a, ctx: {"dry": ctx.dry_run}, lambda sp: sp.add_argument("--epic", type=int))
+    assert _run(capsys, ["--root", str(project), "t-dry3", "--epic", "7"]) == (0, {"dry": True})

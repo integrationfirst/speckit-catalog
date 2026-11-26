@@ -15,6 +15,7 @@ from issue_flow.config import ConfigError  # noqa: E402
 
 # Workflows export "{{ inputs.dry_run | to_json }}" ("true"/"false"); shells use "1".
 DRY_RUN_TRUE = ("1", "true", "yes")
+DRY_RUN_FILE = "dry-run"   # .specify/issue-flow/<epic>/dry-run.json, written only by pull-issue
 
 
 class Refusal(Exception):
@@ -97,12 +98,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         ctx = Context(Path(args.root) if args.root else Path.cwd(),
                       dry_run=os.environ.get("ISSUE_FLOW_DRY_RUN", "").strip().lower() in DRY_RUN_TRUE)
-        # Sticky per epic: a run started dry (pull-issue records it) stays dry for every later
-        # command, including those run by agent steps that do not inherit the workflow's env.
+        # Sticky per epic: a run started dry (pull-issue writes dry-run.json, a CLI-only file)
+        # stays dry for every later command, including those run by agent steps that do not
+        # inherit the workflow's env.
         epic = getattr(args, "epic", None)
         if epic is not None and not ctx.dry_run:
             from issue_flow.state import StateDir
-            ctx.dry_run = bool(StateDir(ctx.root, epic).read("state").get("dry_run"))
+            ctx.dry_run = bool(StateDir(ctx.root, epic).read(DRY_RUN_FILE).get("dry_run"))
         func = _REGISTRY[args.command][0]
         _emit(func(args, ctx))
         return 0

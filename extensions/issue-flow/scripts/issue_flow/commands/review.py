@@ -25,8 +25,8 @@ def _git_branch(root: Path) -> str:
 # -- pull-issue
 def pull_issue(args, ctx) -> dict:
     state = StateDir(ctx.root, args.epic)
-    st = state.read("state")
-    if st.get("dry_run") and not ctx.env_dry_run:
+    mode = state.read(cli.DRY_RUN_FILE)
+    if mode.get("dry_run") and not ctx.env_dry_run:
         raise cli.Refusal(f"epic #{args.epic} state is from a dry run; remove "
                           f".specify/issue-flow/{args.epic}/ to start a real run")
     issue = ctx.gh.issue(args.epic)
@@ -40,9 +40,8 @@ def pull_issue(args, ctx) -> dict:
     path = ctx.root / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines))
-    if "dry_run" not in st:
-        st["dry_run"] = bool(ctx.dry_run)
-        state.write("state", st)
+    if "dry_run" not in mode:
+        state.write(cli.DRY_RUN_FILE, {"dry_run": bool(ctx.dry_run)})
     return {"epic": args.epic, "title": issue["title"], "path": rel.as_posix()}
 
 
@@ -141,6 +140,17 @@ def check_approval(args, ctx) -> dict:
     if not history:
         raise cli.Refusal(f"no approval request recorded for stage '{stage}'")
     req = history[-1]
+    target = getattr(args, "target", None)
+    if target is not None and req["target"] != target:
+        # The latest request is for another issue (e.g. the previous Story's QA): never let
+        # its approval satisfy this wait.
+        result = {"status": "pending", "request_id": None, "target": target, "approved_by": {},
+                  "waiting_for": list(ctx.config.stages[stage].roles), "reason": "", "feedback": ""}
+        state.write(stage, result)
+        if getattr(args, "wait", False):
+            raise cli.Waiting(result, f"waiting for a {stage} request: no {stage} request for "
+                                      f"#{target} yet (latest {req['id']} is for #{req['target']})")
+        return result
     paths = [ctx.root / a for a in req["artifacts"]]
     missing = [a for a, p in zip(req["artifacts"], paths) if not p.is_file()]
     current = "missing:" + ",".join(missing) if missing else content_hash(paths, base=ctx.root)
@@ -186,6 +196,8 @@ def _setup_request(sp):
 def _setup_check(sp):
     _epic(sp)
     sp.add_argument("--stage", required=True, choices=STAGES)
+    sp.add_argument("--target", type=int, default=None,
+                    help="issue the request must be for (required by the workflow for qa)")
     sp.add_argument("--wait", action="store_true")
 
 

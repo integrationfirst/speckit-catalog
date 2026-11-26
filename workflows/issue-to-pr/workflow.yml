@@ -19,10 +19,14 @@ workflow:
 #
 # dry_run=true exports ISSUE_FLOW_DRY_RUN to every issue-flow CLI step, which
 # logs GitHub writes (`DRY-RUN gh ...` on stderr) instead of making them.
-# `pull-issue` records the mode in .specify/issue-flow/<epic>/state.json and every
-# later CLI call for that epic stays dry, including the ones agent steps
-# (publish) make without the step env. A dry-run state is sticky: for a real run
-# afterwards, remove .specify/issue-flow/<epic>/ first (pull-issue refuses otherwise).
+# `pull-issue` records the mode in .specify/issue-flow/<epic>/dry-run.json (a
+# CLI-only file) and every later CLI call for that epic stays dry, including the
+# ones agent steps (publish) make without the step env. A dry-run state is
+# sticky: for a real run afterwards, remove .specify/issue-flow/<epic>/ first
+# (pull-issue refuses otherwise).
+# NOT covered by dry_run: Confluence page creates/updates made by the publish
+# agent (via the Atlassian MCP tools, not the CLI) STILL HAPPEN in a dry run.
+# Leave confluence.space_key empty in the config to skip Confluence entirely.
 
 requires:
   speckit_version: ">=1.4.0"
@@ -214,7 +218,7 @@ steps:
 
                   - id: qa_wait
                     type: shell
-                    run: ".specify/extensions/issue-flow/bin/issue-flow check-approval --epic {{ inputs.epic }} --stage qa --wait"
+                    run: ".specify/extensions/issue-flow/bin/issue-flow check-approval --epic {{ inputs.epic }} --stage qa --target {{ steps.next_story.output.data.story }} --wait"
                     output_format: json
                     env: *cli_env
 
