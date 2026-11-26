@@ -38,7 +38,7 @@ def pull_issue(args, ctx) -> dict:
         lines += [f"**@{c['author']}** ({c['createdAt']}):", c["body"], ""]
     rel = Path(".specify/issue-flow") / str(args.epic) / "issue.md"
     path = ctx.root / rel
-    path.parent.mkdir(parents=True, exist_ok=True)
+    state.ensure()
     path.write_text("\n".join(lines))
     if "dry_run" not in mode:
         state.write(cli.DRY_RUN_FILE, {"dry_run": bool(ctx.dry_run)})

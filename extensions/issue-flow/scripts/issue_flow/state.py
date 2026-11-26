@@ -9,7 +9,17 @@ from pathlib import Path
 
 class StateDir:
     def __init__(self, root: Path, epic: int):
-        self.path = Path(root) / ".specify" / "issue-flow" / str(epic)
+        self.base = Path(root) / ".specify" / "issue-flow"
+        self.path = self.base / str(epic)
+
+    def ensure(self) -> Path:
+        """Create the epic dir, and `.specify/issue-flow/.gitignore` (`*`) so run state is
+        never committed (the agent steps commit with `git add`)."""
+        self.path.mkdir(parents=True, exist_ok=True)
+        gi = self.base / ".gitignore"
+        if not gi.is_file():
+            gi.write_text("*\n")
+        return self.path
 
     def _file(self, name: str) -> Path:
         return self.path / f"{name}.json"
@@ -22,6 +32,7 @@ class StateDir:
 
     def write(self, name: str, data: dict) -> None:
         f = self._file(name)
+        self.ensure()
         f.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=f.parent, prefix=f.name + ".", suffix=".tmp")
         try:

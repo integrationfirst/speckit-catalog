@@ -24,6 +24,7 @@ def run_tests(args, ctx) -> dict:
     passed = not failed
     rel = Path(".specify/issue-flow") / str(args.epic) / "stories" / str(args.story) / "test-report.md"
     path = ctx.root / rel
+    state.ensure()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_report(args.story, rnd, tests.max_fix_rounds, results))
     result = {"passed": passed, "round": rnd, "max_rounds": tests.max_fix_rounds,

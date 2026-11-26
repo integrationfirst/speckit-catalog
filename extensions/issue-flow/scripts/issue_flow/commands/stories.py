@@ -36,7 +36,7 @@ def _summary(plans) -> list[dict]:
 def breakdown(args, ctx) -> dict:
     state = StateDir(ctx.root, args.epic)
     plans = _plan(_tasks_path(args, ctx, state))
-    state.path.mkdir(parents=True, exist_ok=True)
+    state.ensure()
     (state.path / "breakdown.md").write_text(render_breakdown(plans))
     return {"stories": _summary(plans)}
 
