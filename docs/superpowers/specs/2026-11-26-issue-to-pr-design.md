@@ -223,7 +223,7 @@ tests:
     - {name: unit, type: unit, command: "npm test", required: true}
     - {name: api,  type: api,  command: "newman run postman/collection.json", required: true}
     - {name: ui,   type: ui,   command: "npx playwright test", required: true}
-git: {default_branch: main, stacked: true}
+git: {default_branch: main}   # 0.1.1: always stacked; read from the committed config
 ```
 
 ## 7. Error handling

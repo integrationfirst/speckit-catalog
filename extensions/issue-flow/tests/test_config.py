@@ -25,7 +25,7 @@ def test_load_valid_config(project):
     assert cfg.stages["pr"].via == "github_review"
     assert cfg.tests.max_fix_rounds == 5
     assert cfg.tests.suites[0].timeout_seconds == 1800
-    assert cfg.git.stacked is True
+    assert cfg.git.default_branch == "main"
 
 
 def test_unknown_role_in_stage_raises(project):
@@ -94,17 +94,62 @@ def test_committed_config_on_feature_branch_does_not_count(project):
     assert config.load(project).approvers["team_lead"] == ["team_lead-user"]
 
 
-def test_origin_default_branch_preferred(project, tmp_path_factory):
+def _bare_origin(project, tmp_path_factory, branch="main"):
     remote = tmp_path_factory.mktemp("remote")
-    git(remote, "init", "-q", "--bare")
+    git(remote, "init", "-q", "--bare", "-b", branch)
     git(project, "remote", "add", "origin", str(remote))
-    git(project, "push", "-q", "origin", "main")
-    git(project, "fetch", "-q", "origin")
+    git(project, "push", "-q", "origin", f"HEAD:{branch}")
+    return remote
+
+
+def test_origin_default_branch_preferred(project, tmp_path_factory):
+    _bare_origin(project, tmp_path_factory)
     _edit(project, lambda d: d["approvers"].update(team_lead=["local-only"]))  # local main only
     assert config.load(project).approvers["team_lead"] == ["team_lead-user"]
     git(project, "push", "-q", "origin", "main")
-    git(project, "fetch", "-q", "origin")
+    # no manual fetch: load() fetches origin's default branch itself
     assert config.load(project).approvers["team_lead"] == ["local-only"]
+
+
+# Gap 2: approvers pushed by someone else are seen without a manual fetch
+def test_load_fetches_origin_before_reading_approvers(project, tmp_path_factory):
+    remote = _bare_origin(project, tmp_path_factory)
+    git(project, "fetch", "-q", "origin")
+    other = tmp_path_factory.mktemp("other")
+    git(other, "clone", "-q", str(remote), "c")
+    clone = other / "c"
+    git(clone, "config", "user.email", "o@o")
+    git(clone, "config", "user.name", "o")
+    git(clone, "config", "commit.gpgsign", "false")
+    _edit(clone, lambda d: d["approvers"].update(team_lead=["new-lead"]))
+    git(clone, "push", "-q", "origin", "main")
+    assert config.load(project).approvers["team_lead"] == ["new-lead"]
+
+
+# Gap 2: the working tree cannot pick which branch approvers are read from
+def test_working_tree_default_branch_ignored_with_origin(project, tmp_path_factory):
+    _bare_origin(project, tmp_path_factory)
+    git(project, "checkout", "-q", "-b", "evil")
+    _edit(project, lambda d: d["approvers"].update(team_lead=["mallory"]))   # committed on evil
+    git(project, "push", "-q", "origin", "evil")
+    _edit(project, lambda d: d["git"].update(default_branch="evil"), commit=False)
+    cfg = config.load(project)
+    assert cfg.approvers["team_lead"] == ["team_lead-user"]
+    assert cfg.git.default_branch == "main"          # git settings come from the committed config
+
+
+def test_unreachable_origin_refused(project):
+    git(project, "remote", "add", "origin", str(project / "does-not-exist"))
+    with pytest.raises(ConfigError, match="origin"):
+        config.load(project)
+
+
+# Gap 4: unstacked mode was removed
+@pytest.mark.parametrize("commit", [True, False])
+def test_unstacked_mode_refused(project, commit):
+    _edit(project, lambda d: d["git"].update(stacked=False), commit=commit)
+    with pytest.raises(ConfigError, match="stacked"):
+        config.load(project)
 
 
 def test_default_branch_from_working_tree_config(project):

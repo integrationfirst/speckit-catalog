@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 CONFIG_REL = Path(".specify/extensions/issue-flow/issue-flow-config.yml")
+_BRANCH_RE = re.compile(r"[A-Za-z0-9._][A-Za-z0-9._/-]*")
 
 
 class ConfigError(Exception):
@@ -40,7 +41,6 @@ class TestsCfg:
 @dataclass
 class GitCfg:
     default_branch: str = "main"
-    stacked: bool = True
 
 
 @dataclass
@@ -81,26 +81,72 @@ def _read_yaml(text: str, where: str) -> dict:
     return raw
 
 
-def _git_show(root: Path, ref: str) -> str | None:
-    """Contents of the config file at `ref` (path relative to `root`), or None."""
+def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess | None:
     try:
-        r = subprocess.run(["git", "show", f"{ref}:./{CONFIG_REL.as_posix()}"], cwd=root,
-                           capture_output=True, text=True)
+        return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)
     except OSError:
         return None
-    return r.stdout if r.returncode == 0 else None
 
 
-def _committed(root: Path, default_branch: str) -> tuple[dict, str]:
-    """The config committed on origin/<default_branch> (fallback <default_branch>)."""
-    for ref in (f"origin/{default_branch}", default_branch):
-        text = _git_show(root, ref)
-        if text is not None:
-            return _read_yaml(text, f"{ref}:{CONFIG_REL.as_posix()}"), ref
-    raise ConfigError(
-        f"issue-flow config is not committed on origin/{default_branch} or {default_branch}: "
-        f"commit and push {CONFIG_REL.as_posix()} to the default branch before a run "
-        "(approvers and stages are read only from there)")
+def _git_show(root: Path, ref: str) -> str | None:
+    """Contents of the config file at `ref` (path relative to `root`), or None."""
+    r = _run_git(root, ["show", f"{ref}:./{CONFIG_REL.as_posix()}"])
+    return r.stdout if r is not None and r.returncode == 0 else None
+
+
+def _origin_default_branch(root: Path) -> str | None:
+    """The default branch of the `origin` remote, asked from the remote itself (never from the
+    working tree). None when there is no `origin` remote; ConfigError when it cannot be reached."""
+    r = _run_git(root, ["remote", "get-url", "origin"])
+    if r is None or r.returncode != 0:
+        return None
+    r = _run_git(root, ["ls-remote", "--symref", "origin", "HEAD"])
+    if r is not None and r.returncode == 0:
+        m = re.search(r"^ref: refs/heads/(\S+)\tHEAD$", r.stdout, re.M)
+        if m and _BRANCH_RE.fullmatch(m.group(1)):
+            return m.group(1)
+    raise ConfigError("cannot read the default branch of 'origin' (git ls-remote failed); "
+                      "approvers are read from it, so the run cannot continue offline")
+
+
+def _fetch(root: Path, branch: str) -> None:
+    """Refresh origin/<branch> so approver changes pushed since the last fetch are seen."""
+    r = _run_git(root, ["fetch", "--quiet", "--no-tags", "origin",
+                        f"+refs/heads/{branch}:refs/remotes/origin/{branch}"])
+    if r is None or r.returncode != 0:
+        err = (r.stderr.strip() if r is not None else "git not found")
+        raise ConfigError(f"cannot fetch origin/{branch}: {err}")
+
+
+def _committed(root: Path, wt_default_branch: str) -> tuple[dict, str]:
+    """The config committed on the remote's default branch, freshly fetched. Only a project
+    without an `origin` remote falls back to the local branch named by the working tree
+    (`git.default_branch`)."""
+    remote_default = _origin_default_branch(root)
+    if remote_default is not None:
+        _fetch(root, remote_default)
+        ref = f"origin/{remote_default}"
+    else:
+        ref = wt_default_branch
+    text = _git_show(root, ref)
+    if text is None:
+        raise ConfigError(
+            f"issue-flow config is not committed on {ref}: commit and push "
+            f"{CONFIG_REL.as_posix()} to the default branch before a run "
+            "(approvers, stages and git settings are read only from there)")
+    return _read_yaml(text, f"{ref}:{CONFIG_REL.as_posix()}"), ref
+
+
+def _git_cfg(raw: dict) -> GitCfg:
+    g = _map(raw, "git")
+    default_branch = g.get("default_branch", "main")
+    if not isinstance(default_branch, str) or not _BRANCH_RE.fullmatch(default_branch):
+        raise ConfigError("git.default_branch must be a branch name")
+    stacked = g.get("stacked", True)
+    if stacked is not True:
+        raise ConfigError("git.stacked: unstacked mode was removed in issue-flow 0.1.1 (Story "
+                          "PRs always stack); delete the setting")
+    return GitCfg(default_branch=default_branch)
 
 
 def _approvers(raw: dict) -> dict[str, list[str]]:
@@ -152,9 +198,9 @@ def _suites(t: dict) -> list[Suite]:
 
 
 def load(root: Path) -> Config:
-    """Working-tree config, except `approvers` and `stages`: those are read from the config
-    committed on the default branch, so an agent editing the working tree cannot change who
-    may approve."""
+    """Working-tree config, except `approvers`, `stages` and `git`: those are read from the
+    config committed on the remote's default branch (fetched first), so an agent editing the
+    working tree cannot change who may approve or where PRs go."""
     root = Path(root)
     path = root / CONFIG_REL
     if not path.is_file():
@@ -166,17 +212,9 @@ def load(root: Path) -> Config:
     if not repo or not isinstance(repo, str):
         raise ConfigError("github.repo is required")
 
-    g = _map(raw, "git")
-    default_branch = g.get("default_branch", "main")
-    stacked = g.get("stacked", True)
-    if not isinstance(default_branch, str) or not re.fullmatch(r"[A-Za-z0-9._][A-Za-z0-9._/-]*",
-                                                                default_branch):
-        raise ConfigError("git.default_branch must be a branch name")
-    if not isinstance(stacked, bool):
-        raise ConfigError("git.stacked must be true or false")
-    git = GitCfg(default_branch=default_branch, stacked=stacked)
-
-    committed, _ = _committed(root, default_branch)
+    wt_git = _git_cfg(raw)   # validated, but only used to locate the config without a remote
+    committed, _ = _committed(root, wt_git.default_branch)
+    git = _git_cfg(committed)
     approvers = _approvers(committed)
     stages = _stages(committed, approvers)
 

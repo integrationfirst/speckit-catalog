@@ -43,4 +43,3 @@ tests:
 
 git:
   default_branch: main
-  stacked: true

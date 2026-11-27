@@ -2,7 +2,7 @@ schema_version: "1.0"
 workflow:
   id: "issue-to-pr"
   name: "Issue to pull requests"
-  version: "0.1.0"
+  version: "0.1.1"
   author: "integrationfirst"
   description: "GitHub issue (label coding-agent) → approved spec, plan and tasks → one tested, QA-approved, reviewed pull request per Story"
 

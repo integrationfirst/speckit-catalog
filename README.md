@@ -14,7 +14,7 @@ https://raw.githubusercontent.com/integrationfirst/speckit-catalog/main/catalog.
 | ID | Version | What it does | Vetted |
 |----|---------|--------------|--------|
 | `jira` | 2.1.0 | Creates Jira Epic / Story / Sub-task hierarchy from `spec.md` + `tasks.md` and syncs task status, via the Atlassian MCP server. | 2026-11-26 |
-| `issue-flow` | 0.1.0 | GitHub issue-driven flow: approvals via issue comments, stacked PRs per Story, test gating. Python CLI + 4 commands (`setup`, `status`, `publish`, `fix`). | 2026-11-26 |
+| `issue-flow` | 0.1.1 | GitHub issue-driven flow: approvals via issue comments, stacked PRs per Story, test gating. Python CLI + 4 commands (`setup`, `status`, `publish`, `fix`). | 2026-11-26 |
 
 ## Workflows
 
@@ -22,8 +22,8 @@ Listed in `workflows/catalog.json` (`https://raw.githubusercontent.com/integrati
 
 | ID | Version | What it does |
 |----|---------|--------------|
-| `issue-to-pr` | 0.1.0 | GitHub issue labelled `coding-agent` to approved spec, plan, tasks, then one tested, QA-approved, reviewed PR per Story. Needs the `issue-flow` extension and `issue-flow-stage`. |
-| `issue-flow-stage` | 0.1.0 | One approval stage: publish an artifact, wait for approvers, regenerate on rejection. Called by `issue-to-pr`. |
+| `issue-to-pr` | 0.1.1 | GitHub issue labelled `coding-agent` to approved spec, plan, tasks, then one tested, QA-approved, reviewed PR per Story. Needs the `issue-flow` extension and `issue-flow-stage`. |
+| `issue-flow-stage` | 0.1.1 | One approval stage: publish an artifact, wait for approvers, regenerate on rejection. Called by `issue-to-pr`. |
 
 ## Use it in a project
 
@@ -72,15 +72,17 @@ Per-extension setup notes:
    ```
 2. Install: `specify extension add issue-flow`
 3. Run `/speckit-issue-flow-setup` (attended) to create the config.
-4. **Commit and push the config to the default branch** (`git.default_branch`, e.g. `main`) before any run:
+4. **Commit and push the config to the repository's default branch** (e.g. `main`) before any run:
    ```bash
    git add .specify/extensions/issue-flow/issue-flow-config.yml
    git commit -m "chore: issue-flow config" && git push origin main
    ```
-   `approvers` and `stages` are read only from `origin/<default_branch>` (fallback: the local
-   `<default_branch>`), never from the working tree, so an agent step editing the file cannot change who
-   may approve. A run refuses to start if the committed config is missing. After changing approvers,
-   commit, push and `git fetch` again.
+   `approvers`, `stages` and `git` are read only from the config committed on origin's default branch
+   (asked from the remote with `git ls-remote`, then fetched by every CLI call), never from the working
+   tree, so an agent step editing the file cannot change who may approve or where PRs go. A run refuses
+   to start if the committed config is missing or origin cannot be reached. After changing approvers,
+   commit and push; no manual fetch is needed. (Only a project with no `origin` remote falls back to the
+   local branch named by the working tree's `git.default_branch`.)
 5. Merge `.specify/extensions/issue-flow/claude-permissions.json` into `.claude/settings.json` (both `allow`
    and `deny`), and also allow your project's own test commands (headless runs cannot prompt). The full
    snippet:
@@ -109,12 +111,16 @@ Per-extension setup notes:
        ],
        "deny": [
          "Edit(.specify/extensions/issue-flow/**)",
-         "Write(.specify/extensions/issue-flow/**)"
+         "Write(.specify/extensions/issue-flow/**)",
+         "Edit(.specify/issue-flow/**)",
+         "Write(.specify/issue-flow/**)"
        ]
      }
    }
    ```
-   The `deny` entries stop agent steps from editing the extension and its config.
+   The `deny` entries stop agent steps from editing the extension, its config and the run state
+   (`.specify/issue-flow/`, written only by the CLI; the publish agent records Confluence page ids with
+   `issue-flow.sh set-page`).
 6. Choose the `team_lead` logins (they approve PRs) so that **none of them is the login that runs the
    workflow**: PRs are opened with the developer's `gh` login, and GitHub refuses an APPROVE review from
    the PR author, so that person could never approve the PR stage.
@@ -127,8 +133,9 @@ Per-extension setup notes:
 9. Run: `specify workflow run issue-to-pr -i epic=<n>`
 
 Story 1 branches from the spec feature branch (the spec, plan and tasks are committed there first, so they
-travel with Story 1's PR) and its PR targets the default branch. With `git.stacked: true`, Story N branches
-from and targets Story N-1's branch. Run state lives in `.specify/issue-flow/`, which is git-ignored.
+travel with Story 1's PR) and its PR targets the default branch. Story N branches from and targets
+Story N-1's branch (stacked PRs; unstacked mode was removed in 0.1.1, and `git.stacked: false` is
+refused). Run state lives in `.specify/issue-flow/`, which is git-ignored.
 Removing the `coding-agent` label from the Epic stops the flow at its next GitHub step.
 
 ### While a run is waiting
@@ -146,7 +153,9 @@ Run `/speckit-issue-flow-status <n>` (or `specify workflow status <run-id>`) to 
 `-i dry_run=true` logs GitHub writes (`DRY-RUN gh ...`) instead of making them. Confluence page writes
 by the publish agent still happen (leave `confluence.space_key` empty to skip). A dry run stops at the
 story loop, so no Stories are created. When switching between dry and real runs for an epic, start from a
-fresh state dir: `rm -rf .specify/issue-flow/<n>`; the CLI refuses to mix them (exit 2).
+fresh state dir: `rm -rf .specify/issue-flow/<n>`; the CLI refuses to mix them (exit 2). Running
+`issue-flow-stage` on its own records the mode too (its first step, `init-mode`), so a standalone
+`-i dry_run=true` stage run stays dry for the publish agent.
 
 ### Recovering a stuck run
 

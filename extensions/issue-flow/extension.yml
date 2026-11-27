@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: "issue-flow"
   name: "Issue Flow"
-  version: "0.1.0"
+  version: "0.1.1"
   description: "GitHub issue-driven spec-driven development flow with approvals, stacked PRs and test gating"
   author: "integrationfirst"
   repository: "https://github.com/integrationfirst/speckit-catalog"

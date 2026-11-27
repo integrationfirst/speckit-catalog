@@ -2,7 +2,7 @@ schema_version: "1.0"
 workflow:
   id: "issue-flow-stage"
   name: "Issue Flow approval stage"
-  version: "0.1.0"
+  version: "0.1.1"
   author: "integrationfirst"
   description: "Publish a spec/plan/tasks artifact for approval on GitHub, wait for the approvers, regenerate with feedback on rejection"
 
@@ -47,6 +47,15 @@ inputs:
     prompt: "Log GitHub writes from the issue-flow CLI instead of making them"
 
 steps:
+  # Record the run mode before the publish agent calls the CLI (agent steps do not get
+  # ISSUE_FLOW_DRY_RUN). A no-op when issue-to-pr already recorded it; refuses a mismatch.
+  - id: stage_mode
+    type: shell
+    run: ".specify/extensions/issue-flow/bin/issue-flow.sh init-mode --epic {{ inputs.epic }}"
+    output_format: json
+    env:
+      ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
+
   - id: stage_publish
     command: speckit.issue-flow.publish
     integration: "{{ inputs.integration }}"

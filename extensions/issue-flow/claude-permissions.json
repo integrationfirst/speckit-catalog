@@ -22,7 +22,9 @@
     ],
     "deny": [
       "Edit(.specify/extensions/issue-flow/**)",
-      "Write(.specify/extensions/issue-flow/**)"
+      "Write(.specify/extensions/issue-flow/**)",
+      "Edit(.specify/issue-flow/**)",
+      "Write(.specify/issue-flow/**)"
     ]
   }
 }

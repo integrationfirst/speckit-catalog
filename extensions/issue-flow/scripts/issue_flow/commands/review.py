@@ -65,16 +65,35 @@ def _artifact_paths(ctx, artifacts: list[str]) -> list[Path]:
     return paths
 
 
+def _check_mode(state: StateDir, epic: int, ctx) -> dict:
+    """The recorded run mode; refuse when the step env asks for the other mode."""
+    mode = state.read(cli.DRY_RUN_FILE)
+    if mode.get("dry_run") and not ctx.env_dry_run:
+        raise cli.Refusal(f"epic #{epic} state is from a dry run; remove "
+                          f".specify/issue-flow/{epic}/ to start a real run")
+    if "dry_run" in mode and not mode["dry_run"] and ctx.env_dry_run:
+        raise cli.Refusal(f"epic #{epic} state is from a real run; remove "
+                          f".specify/issue-flow/{epic}/ to start a dry run")
+    return mode
+
+
+# -- init-mode
+def init_mode(args, ctx) -> dict:
+    """Record the run mode from the step env (ISSUE_FLOW_DRY_RUN) unless already recorded, so
+    agent steps, which do not get the env, follow it. Workflows run this before any agent step
+    that may call the CLI."""
+    state = StateDir(ctx.root, args.epic)
+    mode = _check_mode(state, args.epic, ctx)
+    if "dry_run" not in mode:
+        mode = {"dry_run": bool(ctx.env_dry_run)}
+        state.write(cli.DRY_RUN_FILE, mode)
+    return {"epic": args.epic, "dry_run": bool(mode["dry_run"])}
+
+
 # -- pull-issue
 def pull_issue(args, ctx) -> dict:
     state = StateDir(ctx.root, args.epic)
-    mode = state.read(cli.DRY_RUN_FILE)
-    if mode.get("dry_run") and not ctx.env_dry_run:
-        raise cli.Refusal(f"epic #{args.epic} state is from a dry run; remove "
-                          f".specify/issue-flow/{args.epic}/ to start a real run")
-    if "dry_run" in mode and not mode["dry_run"] and ctx.env_dry_run:
-        raise cli.Refusal(f"epic #{args.epic} state is from a real run; remove "
-                          f".specify/issue-flow/{args.epic}/ to start a dry run")
+    mode = _check_mode(state, args.epic, ctx)
     issue = ctx.gh.issue(args.epic)
     label = ctx.config.trigger_label
     if label not in issue["labels"]:
@@ -247,6 +266,25 @@ def assert_published(args, ctx) -> dict:
             "status": status}
 
 
+# -- set-page
+PAGE_KEYS = ["spec", "plan", "tasks", "tasks-breakdown"]
+
+
+def set_page(args, ctx) -> dict:
+    """Record a Confluence page id in state.json `pages` (the publish agent may not write the
+    state dir itself)."""
+    import re
+    if not re.fullmatch(r"[0-9]{1,30}", args.page_id):
+        raise cli.Refusal(f"page id must be numeric: {args.page_id!r}")
+    state = StateDir(ctx.root, args.epic)
+    st = state.read("state")
+    pages = st.get("pages") if isinstance(st.get("pages"), dict) else {}
+    pages[args.key] = args.page_id
+    st["pages"] = pages
+    state.write("state", st)
+    return {"epic": args.epic, "pages": pages}
+
+
 # -- record-feature
 def record_feature(args, ctx) -> dict:
     branch = _git_branch(ctx.root)
@@ -287,6 +325,14 @@ def _setup_check(sp):
     sp.add_argument("--wait", action="store_true")
 
 
+def _setup_page(sp):
+    _epic(sp)
+    sp.add_argument("--key", required=True, choices=PAGE_KEYS)
+    sp.add_argument("--page-id", dest="page_id", required=True)
+
+
+cli.register("init-mode", init_mode, _epic)
+cli.register("set-page", set_page, _setup_page)
 cli.register("pull-issue", pull_issue, _epic)
 cli.register("request", request, _setup_request)
 cli.register("check-approval", check_approval, _setup_check)

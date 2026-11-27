@@ -411,3 +411,56 @@ def test_assert_published_cli_exit_2(project, capsys, monkeypatch):
     code, out = _cli(capsys, str(project), "assert-published", "--epic", "7", "--stage", "qa",
                      "--target", "8")
     assert code == 2 and "no qa request" in out["error"]
+
+
+# Gap 3: init-mode records the step env's mode so a standalone stage run stays dry
+def test_init_mode_records_dry_run(project):
+    ctx, runner = make_ctx(project, routes(), dry=True)
+    ctx.env_dry_run = True
+    assert review.init_mode(ns(epic=7), ctx) == {"epic": 7, "dry_run": True}
+    assert StateDir(project, 7).read("dry-run") == {"dry_run": True}
+    assert runner.calls == []
+
+
+def test_init_mode_noop_when_recorded(project):
+    StateDir(project, 7).write("dry-run", {"dry_run": False})
+    ctx, _ = make_ctx(project, routes())
+    assert review.init_mode(ns(epic=7), ctx) == {"epic": 7, "dry_run": False}
+
+
+def test_init_mode_refuses_mismatch(project):
+    StateDir(project, 7).write("dry-run", {"dry_run": True})
+    ctx, _ = make_ctx(project, routes())          # env not dry
+    with pytest.raises(cli.Refusal, match="dry run"):
+        review.init_mode(ns(epic=7), ctx)
+
+
+def test_init_mode_via_main_with_env(project, monkeypatch, capsys):
+    monkeypatch.setenv("ISSUE_FLOW_DRY_RUN", "true")
+    assert cli.main(["--root", str(project), "init-mode", "--epic", "7"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"epic": 7, "dry_run": True}
+    monkeypatch.delenv("ISSUE_FLOW_DRY_RUN")
+    # a later real-mode call on the dry state refuses (exit 2)
+    assert cli.main(["--root", str(project), "init-mode", "--epic", "7"]) == 2
+
+
+# Gap 1: the publish agent records page ids through the CLI
+def test_set_page_records_page_and_keeps_state(project):
+    StateDir(project, 7).write("state", {"feature_dir": "specs/x", "pages": {"spec": "1"}})
+    ctx, _ = make_ctx(project, routes())
+    out = review.set_page(argparse.Namespace(epic=7, key="plan", page_id="42"), ctx)
+    assert out["pages"] == {"spec": "1", "plan": "42"}
+    assert StateDir(project, 7).read("state") == {"feature_dir": "specs/x",
+                                                  "pages": {"spec": "1", "plan": "42"}}
+
+
+@pytest.mark.parametrize("pid", ["", "12a", "../x", "1 2", "-1"])
+def test_set_page_rejects_non_numeric(project, pid):
+    ctx, _ = make_ctx(project, routes())
+    with pytest.raises(cli.Refusal):
+        review.set_page(argparse.Namespace(epic=7, key="spec", page_id=pid), ctx)
+
+
+def test_set_page_rejects_unknown_key(project, capsys):
+    assert cli.main(["--root", str(project), "set-page", "--epic", "7", "--key", "feature_dir",
+                     "--page-id", "1"]) == 2
