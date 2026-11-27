@@ -140,3 +140,24 @@ def test_dry_run_survives_state_json_rewrite(capsys, project, monkeypatch):
     StateDir(project, 7).write("state", {"pages": {"spec": "1"}})
     cli.register("t-dry3", lambda a, ctx: {"dry": ctx.dry_run}, lambda sp: sp.add_argument("--epic", type=int))
     assert _run(capsys, ["--root", str(project), "t-dry3", "--epic", "7"]) == (0, {"dry": True})
+
+
+# Review 0.1.1 #2: agents may run only request/set-page/pull-issue
+@pytest.mark.parametrize("argv", [
+    ["set-story-status", "--epic", "7", "--story", "11", "--status", "done"],
+    ["open-pr", "--epic", "7", "--story", "11"],
+    ["reset-rounds", "--epic", "7", "--story", "11"],
+    ["init-mode", "--epic", "7"],
+    ["record-feature", "--epic", "7"],
+])
+def test_state_changing_commands_need_workflow_step_env(tmp_path, monkeypatch, capsys, argv):
+    monkeypatch.delenv("ISSUE_FLOW_STEP")
+    assert cli.main(["--root", str(tmp_path), *argv]) == 2
+    assert "workflow shell step" in json.loads(capsys.readouterr().out)["error"]
+    assert not (tmp_path / ".specify").exists()
+
+
+def test_agent_commands_allowed_without_step_env(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("ISSUE_FLOW_STEP")
+    assert cli.main(["--root", str(tmp_path), "set-page", "--epic", "7", "--key", "spec",
+                     "--page-id", "5"]) == 0

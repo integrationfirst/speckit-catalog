@@ -53,6 +53,7 @@ steps:
     output_format: json
     env: &cli_env
       ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
+      ISSUE_FLOW_STEP: "1"
 
   # The issue is passed as a file path, not inlined: a long issue would exceed the
   # command-line argument limit of the agent dispatch.

@@ -79,8 +79,10 @@ Per-extension setup notes:
    ```
    `approvers`, `stages` and `git` are read only from the config committed on origin's default branch
    (asked from the remote with `git ls-remote`, then fetched by every CLI call), never from the working
-   tree, so an agent step editing the file cannot change who may approve or where PRs go. A run refuses
-   to start if the committed config is missing or origin cannot be reached. After changing approvers,
+   tree, so an agent step editing the file cannot change who may approve or where PRs go. `origin` must
+   be the configured `github.repo`. Git never prompts and network calls time out after 60 s; offline,
+   the last fetched `origin/<branch>` is used. A run refuses to start if the committed config is missing
+   or origin's default branch is unknown. After changing approvers,
    commit and push; no manual fetch is needed. (Only a project with no `origin` remote falls back to the
    local branch named by the working tree's `git.default_branch`.)
 5. Merge `.specify/extensions/issue-flow/claude-permissions.json` into `.claude/settings.json` (both `allow`
@@ -94,12 +96,12 @@ Per-extension setup notes:
          "Edit",
          "Write",
          "Bash(.specify/scripts/bash/*:*)",
-         "Bash(.specify/extensions/issue-flow/bin/issue-flow.sh:*)",
+         "Bash(.specify/extensions/issue-flow/bin/issue-flow.sh request:*)",
+         "Bash(.specify/extensions/issue-flow/bin/issue-flow.sh set-page:*)",
+         "Bash(.specify/extensions/issue-flow/bin/issue-flow.sh pull-issue:*)",
          "Bash(git add:*)",
          "Bash(git commit:*)",
          "Bash(git status:*)",
-         "Bash(git diff:*)",
-         "Bash(git log:*)",
          "Bash(git rev-parse:*)",
          "mcp__plugin_atlassian_atlassian__createConfluenceContent",
          "mcp__plugin_atlassian_atlassian__updateConfluenceContent",
@@ -113,14 +115,21 @@ Per-extension setup notes:
          "Edit(.specify/extensions/issue-flow/**)",
          "Write(.specify/extensions/issue-flow/**)",
          "Edit(.specify/issue-flow/**)",
-         "Write(.specify/issue-flow/**)"
+         "Write(.specify/issue-flow/**)",
+         "Edit(.git/**)",
+         "Write(.git/**)",
+         "Edit(.claude/**)",
+         "Write(.claude/**)"
        ]
      }
    }
    ```
-   The `deny` entries stop agent steps from editing the extension, its config and the run state
+   The `deny` entries stop agent steps from editing the extension, its config, the run state
    (`.specify/issue-flow/`, written only by the CLI; the publish agent records Confluence page ids with
-   `issue-flow.sh set-page`).
+   `issue-flow.sh set-page`), `.git` (remotes, hooks) and `.claude` (these permissions). Agents may run
+   only the `request`, `set-page` and `pull-issue` subcommands; every other subcommand refuses unless
+   `ISSUE_FLOW_STEP=1` is set, which only the workflows' shell steps do (set it yourself when running one
+   by hand). `git diff`/`git log` are left out on purpose: `--output=<file>` writes arbitrary files.
 6. Choose the `team_lead` logins (they approve PRs) so that **none of them is the login that runs the
    workflow**: PRs are opened with the developer's `gh` login, and GitHub refuses an APPROVE review from
    the PR author, so that person could never approve the PR stage.

@@ -1,8 +1,10 @@
 """Config loader for issue-flow."""
 from __future__ import annotations
 
+import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -81,10 +83,16 @@ def _read_yaml(text: str, where: str) -> dict:
     return raw
 
 
-def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess | None:
+_GIT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes"}
+NET_TIMEOUT = 60
+
+
+def _run_git(root: Path, args: list[str], timeout: int | None = None) -> subprocess.CompletedProcess | None:
+    """git via argv; None when git is missing or a network call times out. Never prompts."""
     try:
-        return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)
-    except OSError:
+        return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True,
+                              env={**os.environ, **_GIT_ENV}, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
         return None
 
 
@@ -94,36 +102,65 @@ def _git_show(root: Path, ref: str) -> str | None:
     return r.stdout if r is not None and r.returncode == 0 else None
 
 
-def _origin_default_branch(root: Path) -> str | None:
-    """The default branch of the `origin` remote, asked from the remote itself (never from the
-    working tree). None when there is no `origin` remote; ConfigError when it cannot be reached."""
+def _repo_of_url(url: str) -> str | None:
+    """owner/name of a github.com remote URL (https or ssh), lower-cased; None otherwise."""
+    m = re.fullmatch(r"(?:https://(?:[^@/]+@)?github\.com/|ssh://git@github\.com/|git@github\.com:)"
+                     r"([^/]+/[^/]+?)(?:\.git)?/?", url.strip())
+    return m.group(1).lower() if m else None
+
+
+def _origin_url(root: Path) -> str | None:
     r = _run_git(root, ["remote", "get-url", "origin"])
-    if r is None or r.returncode != 0:
-        return None
-    r = _run_git(root, ["ls-remote", "--symref", "origin", "HEAD"])
+    return r.stdout.strip() if r is not None and r.returncode == 0 else None
+
+
+def _check_origin(url: str, repo: str) -> None:
+    """origin must be the configured GitHub repo (a local path is accepted only for tests and
+    mirrors that are not on github.com)."""
+    got = _repo_of_url(url)
+    if "github.com" in url and got != repo.lower():
+        raise ConfigError(f"origin ({url}) is not github.repo '{repo}'; approvers are read only "
+                          "from the configured repository")
+
+
+def _origin_default_branch(root: Path) -> str | None:
+    """The default branch of `origin`, asked from the remote itself; when it cannot be reached,
+    the local origin/HEAD. None when neither is known."""
+    r = _run_git(root, ["ls-remote", "--symref", "origin", "HEAD"], timeout=NET_TIMEOUT)
     if r is not None and r.returncode == 0:
         m = re.search(r"^ref: refs/heads/(\S+)\tHEAD$", r.stdout, re.M)
         if m and _BRANCH_RE.fullmatch(m.group(1)):
             return m.group(1)
-    raise ConfigError("cannot read the default branch of 'origin' (git ls-remote failed); "
-                      "approvers are read from it, so the run cannot continue offline")
+    r = _run_git(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+    if r is not None and r.returncode == 0:
+        b = r.stdout.strip().removeprefix("origin/")
+        if _BRANCH_RE.fullmatch(b):
+            sys.stderr.write(f"issue-flow: origin unreachable; using local origin/{b}\n")
+            return b
+    return None
 
 
 def _fetch(root: Path, branch: str) -> None:
-    """Refresh origin/<branch> so approver changes pushed since the last fetch are seen."""
+    """Refresh origin/<branch> so approver changes pushed since the last fetch are seen; offline,
+    keep the existing ref (GitHub writes and approval checks need the network anyway)."""
     r = _run_git(root, ["fetch", "--quiet", "--no-tags", "origin",
-                        f"+refs/heads/{branch}:refs/remotes/origin/{branch}"])
+                        f"+refs/heads/{branch}:refs/remotes/origin/{branch}"], timeout=NET_TIMEOUT)
     if r is None or r.returncode != 0:
-        err = (r.stderr.strip() if r is not None else "git not found")
-        raise ConfigError(f"cannot fetch origin/{branch}: {err}")
+        err = (r.stderr.strip() if r is not None else "timed out")
+        sys.stderr.write(f"issue-flow: cannot fetch origin/{branch} ({err}); using the local ref\n")
 
 
-def _committed(root: Path, wt_default_branch: str) -> tuple[dict, str]:
-    """The config committed on the remote's default branch, freshly fetched. Only a project
+def _committed(root: Path, wt_default_branch: str, repo: str) -> tuple[dict, str]:
+    """The config committed on origin's default branch, freshly fetched. Only a project
     without an `origin` remote falls back to the local branch named by the working tree
     (`git.default_branch`)."""
-    remote_default = _origin_default_branch(root)
-    if remote_default is not None:
+    url = _origin_url(root)
+    if url is not None:
+        _check_origin(url, repo)
+        remote_default = _origin_default_branch(root)
+        if remote_default is None:
+            raise ConfigError("cannot determine the default branch of 'origin' (unreachable and "
+                              "no local origin/HEAD); approvers are read from it")
         _fetch(root, remote_default)
         ref = f"origin/{remote_default}"
     else:
@@ -213,7 +250,7 @@ def load(root: Path) -> Config:
         raise ConfigError("github.repo is required")
 
     wt_git = _git_cfg(raw)   # validated, but only used to locate the config without a remote
-    committed, _ = _committed(root, wt_git.default_branch)
+    committed, _ = _committed(root, wt_git.default_branch, repo)
     git = _git_cfg(committed)
     approvers = _approvers(committed)
     stages = _stages(committed, approvers)

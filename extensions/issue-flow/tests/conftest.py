@@ -41,3 +41,9 @@ def project(tmp_path):
     git(tmp_path, "config", "commit.gpgsign", "false")
     commit_config(tmp_path, "init")
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _workflow_step_env(monkeypatch):
+    """Tests run CLI subcommands as a workflow shell step would (see cli.AGENT_COMMANDS)."""
+    monkeypatch.setenv("ISSUE_FLOW_STEP", "1")

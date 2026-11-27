@@ -55,6 +55,7 @@ steps:
     output_format: json
     env:
       ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
+      ISSUE_FLOW_STEP: "1"
 
   - id: stage_publish
     command: speckit.issue-flow.publish
@@ -70,6 +71,7 @@ steps:
     output_format: json
     env:
       ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
+      ISSUE_FLOW_STEP: "1"
 
   - id: stage_loop
     type: do-while
@@ -82,6 +84,7 @@ steps:
         output_format: json
         env:
           ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
+          ISSUE_FLOW_STEP: "1"
 
       # stale (the artifact changed after the request): republish only.
       # rejected: regenerate with the reviewer feedback, then republish (r<N+1>).
@@ -102,6 +105,7 @@ steps:
               output_format: json
               env:
                 ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
+                ISSUE_FLOW_STEP: "1"
           rejected:
             - id: stage_generate
               type: switch
@@ -127,6 +131,7 @@ steps:
                     output_format: json
                     env:
                       ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
+                      ISSUE_FLOW_STEP: "1"
                 plan:
                   - id: stage_regen_plan
                     command: speckit.plan
@@ -145,6 +150,7 @@ steps:
                     output_format: json
                     env:
                       ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
+                      ISSUE_FLOW_STEP: "1"
             - id: stage_republish
               command: speckit.issue-flow.publish
               integration: "{{ inputs.integration }}"
@@ -156,6 +162,7 @@ steps:
               output_format: json
               env:
                 ISSUE_FLOW_DRY_RUN: "{{ inputs.dry_run | to_json }}"
+                ISSUE_FLOW_STEP: "1"
 
   # A do-while that hits max_iterations ends as `completed`; refuse to continue unapproved.
   - id: stage_assert_approved

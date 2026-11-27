@@ -138,7 +138,7 @@ def test_working_tree_default_branch_ignored_with_origin(project, tmp_path_facto
     assert cfg.git.default_branch == "main"          # git settings come from the committed config
 
 
-def test_unreachable_origin_refused(project):
+def test_unreachable_origin_without_local_refs_refused(project):
     git(project, "remote", "add", "origin", str(project / "does-not-exist"))
     with pytest.raises(ConfigError, match="origin"):
         config.load(project)
@@ -171,3 +171,34 @@ def test_uncommitted_config_refused(tmp_path):
     git(tmp_path, "init", "-q", "-b", "main")
     with pytest.raises(ConfigError, match="not committed"):
         config.load(tmp_path)
+
+
+# Review 0.1.1 #3: origin must be the configured GitHub repo
+@pytest.mark.parametrize("url,ok", [
+    ("https://github.com/acme/widgets.git", True),
+    ("git@github.com:Acme/Widgets.git", True),
+    ("https://github.com/mallory/widgets.git", False),
+    ("git@github.com:acme/widgets-fork", False),
+])
+def test_origin_must_match_github_repo(url, ok):
+    if ok:
+        config._check_origin(url, "acme/widgets")
+    else:
+        with pytest.raises(ConfigError, match="not github.repo"):
+            config._check_origin(url, "acme/widgets")
+
+
+# Review 0.1.1 #4: offline, the last fetched origin ref is used (never the working tree)
+def test_offline_uses_local_origin_refs(project, tmp_path_factory):
+    import shutil
+    remote = _bare_origin(project, tmp_path_factory)
+    git(project, "fetch", "-q", "origin")
+    git(project, "remote", "set-head", "origin", "main")
+    shutil.rmtree(remote)                               # origin unreachable
+    _edit(project, lambda d: d["approvers"].update(team_lead=["local-only"]))
+    assert config.load(project).approvers["team_lead"] == ["team_lead-user"]
+
+
+def test_git_never_prompts():
+    assert config._GIT_ENV["GIT_TERMINAL_PROMPT"] == "0"
+    assert "BatchMode=yes" in config._GIT_ENV["GIT_SSH_COMMAND"]

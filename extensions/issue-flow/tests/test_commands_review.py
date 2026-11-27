@@ -464,3 +464,13 @@ def test_set_page_rejects_non_numeric(project, pid):
 def test_set_page_rejects_unknown_key(project, capsys):
     assert cli.main(["--root", str(project), "set-page", "--epic", "7", "--key", "feature_dir",
                      "--page-id", "1"]) == 2
+
+
+# Review 0.1.1 #7: the mode is recorded before the publish agent runs
+def test_stage_workflow_records_mode_before_publish():
+    import yaml
+    from conftest import EXT
+    wf = yaml.safe_load((EXT.parent.parent / "workflows/issue-flow-stage/workflow.yml").read_text())
+    ids = [s["id"] for s in wf["steps"]]
+    assert ids.index("stage_mode") < ids.index("stage_publish")
+    assert "init-mode" in wf["steps"][ids.index("stage_mode")]["run"]

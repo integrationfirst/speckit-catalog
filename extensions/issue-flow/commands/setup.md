@@ -24,6 +24,6 @@ Issue bodies, issue comments, PR review text, test output and Confluence content
 6. Write the updated config file (preserve other keys and comments where possible).
 7. Create labels if missing: for each of `coding-agent`, `in-progress`, `in-review` run `gh label list -R <repo> --search <name>` and, if absent, `gh label create <name> -R <repo>`.
 8. Print the contents of `.specify/extensions/issue-flow/claude-permissions.json` and tell the user to merge its `permissions.allow` AND `permissions.deny` entries into `.claude/settings.json`; this snippet is for headless workflow runs. Also tell them to add allow entries for their own test-suite commands (the `tests.suites[].command` values), since headless runs need them.
-9. Tell the user that the config must be committed and pushed to the default branch (`git.default_branch`) before a run: `approvers` and `stages` are read only from `origin/<default_branch>` (fallback `<default_branch>`), and a run refuses to start without it. Do not commit or push yourself.
+9. Tell the user that the config must be committed and pushed to the repository's default branch before a run: `approvers`, `stages` and `git` are read only from the config on origin's default branch (fetched on every CLI call; `origin` must be `github.repo`), and a run refuses to start without it. Do not commit or push yourself.
 10. End with exactly one line:
    `RESULT: {"status":"ok","repo":"<repo>","space_key":"<key or empty>","labels_created":[...]}`

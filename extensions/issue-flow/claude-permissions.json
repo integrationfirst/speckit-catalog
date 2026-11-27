@@ -5,12 +5,12 @@
       "Edit",
       "Write",
       "Bash(.specify/scripts/bash/*:*)",
-      "Bash(.specify/extensions/issue-flow/bin/issue-flow.sh:*)",
+      "Bash(.specify/extensions/issue-flow/bin/issue-flow.sh request:*)",
+      "Bash(.specify/extensions/issue-flow/bin/issue-flow.sh set-page:*)",
+      "Bash(.specify/extensions/issue-flow/bin/issue-flow.sh pull-issue:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git status:*)",
-      "Bash(git diff:*)",
-      "Bash(git log:*)",
       "Bash(git rev-parse:*)",
       "mcp__plugin_atlassian_atlassian__createConfluenceContent",
       "mcp__plugin_atlassian_atlassian__updateConfluenceContent",
@@ -24,7 +24,11 @@
       "Edit(.specify/extensions/issue-flow/**)",
       "Write(.specify/extensions/issue-flow/**)",
       "Edit(.specify/issue-flow/**)",
-      "Write(.specify/issue-flow/**)"
+      "Write(.specify/issue-flow/**)",
+      "Edit(.git/**)",
+      "Write(.git/**)",
+      "Edit(.claude/**)",
+      "Write(.claude/**)"
     ]
   }
 }

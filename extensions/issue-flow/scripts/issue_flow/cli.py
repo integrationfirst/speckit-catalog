@@ -15,7 +15,12 @@ from issue_flow.config import ConfigError  # noqa: E402
 
 # Workflows export "{{ inputs.dry_run | to_json }}" ("true"/"false"); shells use "1".
 DRY_RUN_TRUE = ("1", "true", "yes")
-DRY_RUN_FILE = "dry-run"   # .specify/issue-flow/<epic>/dry-run.json, written only by pull-issue
+DRY_RUN_FILE = "dry-run"   # .specify/issue-flow/<epic>/dry-run.json, written by init-mode/pull-issue
+# Subcommands an agent step may run (the publish agent). Every other subcommand changes run
+# state and needs ISSUE_FLOW_STEP=1, which only the workflows' shell steps set; the headless
+# permissions also allow only these three.
+AGENT_COMMANDS = frozenset({"request", "set-page", "pull-issue"})
+STEP_ENV = "ISSUE_FLOW_STEP"
 
 
 class Refusal(Exception):
@@ -103,6 +108,10 @@ def main(argv: list[str] | None = None) -> int:
         _emit({"help": True})
         return 0
     try:
+        if args.command not in AGENT_COMMANDS and os.environ.get(STEP_ENV, "") != "1":
+            raise Refusal(f"'{args.command}' runs only from a workflow shell step "
+                          f"({STEP_ENV}=1); agent steps may run only "
+                          f"{', '.join(sorted(AGENT_COMMANDS))}")
         ctx = Context(Path(args.root) if args.root else Path.cwd(),
                       dry_run=os.environ.get("ISSUE_FLOW_DRY_RUN", "").strip().lower() in DRY_RUN_TRUE)
         # Sticky per epic: a run started dry (pull-issue writes dry-run.json, a CLI-only file)
