@@ -14,7 +14,7 @@ https://raw.githubusercontent.com/integrationfirst/speckit-catalog/main/catalog.
 | ID | Version | What it does | Vetted |
 |----|---------|--------------|--------|
 | `jira` | 2.1.0 | Creates Jira Epic / Story / Sub-task hierarchy from `spec.md` + `tasks.md` and syncs task status, via the Atlassian MCP server. | 2026-11-26 |
-| `issue-flow` | 0.1.1 | GitHub issue-driven flow: approvals via issue comments, stacked PRs per Story, test gating. Python CLI + 4 commands (`setup`, `status`, `publish`, `fix`). | 2026-11-26 |
+| `issue-flow` | 0.1.1 | GitHub issue-driven flow: approvals via issue comments, stacked PRs per Story, test gating. Python CLI + 4 commands (`setup`, `status`, `publish`, `fix`). | 2026-11-27 |
 
 ## Workflows
 

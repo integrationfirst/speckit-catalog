@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-11-26T00:00:00Z",
+  "updated_at": "2026-11-27T00:00:00Z",
   "catalog_url": "https://raw.githubusercontent.com/integrationfirst/speckit-catalog/main/workflows/catalog.json",
   "workflows": {
     "issue-to-pr": {
@@ -8,7 +8,7 @@
       "name": "Issue to pull requests",
       "description": "GitHub issue (label coding-agent) → approved spec, plan and tasks → one tested, QA-approved, reviewed pull request per Story",
       "author": "integrationfirst",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "url": "https://raw.githubusercontent.com/integrationfirst/speckit-catalog/main/workflows/issue-to-pr/workflow.yml",
       "tags": [
         "github",
@@ -22,7 +22,7 @@
       "name": "Issue Flow approval stage",
       "description": "Publish a spec/plan/tasks artifact for approval on GitHub, wait for the approvers, regenerate with feedback on rejection",
       "author": "integrationfirst",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "url": "https://raw.githubusercontent.com/integrationfirst/speckit-catalog/main/workflows/issue-flow-stage/workflow.yml",
       "tags": [
         "github",
